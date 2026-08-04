@@ -1,18 +1,20 @@
-// Package run orchestrates a simulation: producer to bus to processor, tick by
-// tick, with a deterministic result.
+// Package run executes a simulation to completion as fast as the CPU allows
+// and returns a deterministic scorecard.
 //
-// At M1 this loop splits across processes and the direct calls become gRPC.
-// The Config and Result shapes are the seam that survives that change.
+// This is the batch path: every tick and every control change is known up
+// front, so a run is a pure function of its config. internal/engine is the live
+// path, where ticks come from a clock and controls arrive while the run is
+// going. Both drive the same internal/sim, and TestEngineMatchesBatchRun pins
+// them to the same garden.
 package run
 
 import (
 	"fmt"
 	"sort"
 
-	"github.com/damodbear/signal-garden/internal/bus"
 	"github.com/damodbear/signal-garden/internal/domain"
 	"github.com/damodbear/signal-garden/internal/processor"
-	"github.com/damodbear/signal-garden/internal/producer"
+	"github.com/damodbear/signal-garden/internal/sim"
 )
 
 // Config describes one run.
@@ -79,74 +81,44 @@ type Result struct {
 // Execute runs the simulation to completion and returns the scorecard.
 //
 // The loop is intentionally synchronous. Concurrency is what M3 measures, and
-// introducing it here would make the M0 determinism guarantee depend on
-// scheduling rather than on the rules.
+// introducing it here would make the determinism guarantee depend on scheduling
+// rather than on the rules.
 func Execute(cfg Config) (Result, error) {
 	if err := cfg.Validate(); err != nil {
 		return Result{}, fmt.Errorf("invalid run config: %w", err)
 	}
 
-	garden, err := domain.NewGarden(cfg.Organisms)
+	s, err := sim.New(sim.Config{
+		RunID:          cfg.RunID,
+		Seed:           cfg.Seed,
+		Organisms:      cfg.Organisms,
+		Controls:       cfg.Controls,
+		DuplicateEvery: cfg.DuplicateEvery,
+	})
 	if err != nil {
 		return Result{}, err
 	}
-	prod, err := producer.New(cfg.RunID, cfg.Seed, cfg.Organisms)
-	if err != nil {
-		return Result{}, err
-	}
-	queue := bus.NewMemory()
-	proc := processor.New(garden)
-
-	controls := cfg.Controls
-	revision := 0
-	published := 0
 
 	for tick := int64(0); tick < cfg.Ticks; tick++ {
 		if next, ok := cfg.ControlChanges[tick]; ok {
-			controls = next
-			revision++
-			if err := queue.Publish(prod.ControlChanged(tick, revision)); err != nil {
-				return Result{}, fmt.Errorf("publish control change at tick %d: %w", tick, err)
+			if _, err := s.SetControls(next); err != nil {
+				return Result{}, fmt.Errorf("control change at tick %d: %w", tick, err)
 			}
-			published++
 		}
-
-		events, err := prod.Tick(tick, controls)
-		if err != nil {
+		if err := s.Step(); err != nil {
 			return Result{}, err
-		}
-		for i, e := range events {
-			if err := queue.Publish(e); err != nil {
-				return Result{}, fmt.Errorf("publish at tick %d: %w", tick, err)
-			}
-			published++
-			if cfg.DuplicateEvery > 0 && (i+1)%cfg.DuplicateEvery == 0 {
-				redelivery := e
-				redelivery.Attempt++
-				if err := queue.Publish(redelivery); err != nil {
-					return Result{}, fmt.Errorf("republish at tick %d: %w", tick, err)
-				}
-				published++
-			}
-		}
-
-		// Drain and process within the tick. At M2 this becomes a consumer
-		// group running independently, and the gap between published and
-		// processed becomes lag the player can see.
-		if err := proc.ProcessBatch(queue.Drain()); err != nil {
-			return Result{}, fmt.Errorf("process tick %d: %w", tick, err)
 		}
 	}
 
 	return Result{
 		Config:     cfg,
-		Garden:     garden.Stats(),
-		Organisms:  garden.Organisms(),
-		Snapshot:   garden.Hash(),
-		Processor:  proc.Stats(),
-		Published:  published,
-		Revisions:  revision,
-		FinalCtrls: controls,
+		Garden:     s.Stats(),
+		Organisms:  s.Organisms(),
+		Snapshot:   s.Hash(),
+		Processor:  s.ProcessorStats(),
+		Published:  s.Published(),
+		Revisions:  s.Revision(),
+		FinalCtrls: s.Controls(),
 	}, nil
 }
 

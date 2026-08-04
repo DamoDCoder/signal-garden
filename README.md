@@ -6,13 +6,14 @@ Signal Garden is a local-first real-time event-processing laboratory disguised a
 
 ## Status
 
-**M0: Contract Spike.** One Go process, in-memory event bus, deterministic simulation, CLI projection. No Kafka, no gRPC, no containers yet — see [docs/roadmap.md](docs/roadmap.md) for what each milestone adds and why.
+**M0 complete; M1 in progress.** One Go process, in-memory event bus, deterministic simulation, and a live run engine behind a CLI projection. No Kafka, no gRPC, no containers yet — see [docs/roadmap.md](docs/roadmap.md) for what each milestone adds and why.
 
 ## Quick Start
 
 ```sh
 make test    # domain, replay determinism, and idempotency tests
-make run     # run a garden simulation and print the result
+make run     # run a garden to completion and print the scorecard
+make live    # run on a clock, a frame per tick, steered while it runs
 ```
 
 `make run` accepts the same flags as the binary:
@@ -22,6 +23,16 @@ go run ./cmd/signalgarden -seed 42 -ticks 40 -rate 6 -rain 3 -growth 2 -pest 1
 ```
 
 Two runs with the same seed, tick count, and controls always produce the same final garden. That property is the point of M0, and it is what the replay tests assert.
+
+## Live Mode
+
+```sh
+go run ./cmd/signalgarden -live -ticks 0 -interval 300ms
+```
+
+A frame prints per tick. Type `rate 20`, `rain 1`, `growth 4`, `pest 5`, `pause`, `resume`, or `finish` to steer the run while it is going; a control change takes effect at the next tick boundary and reports the tick it landed on. Ctrl-C finishes the run and prints its summary.
+
+The same controls applied at the same ticks reach the same garden in either mode, which is what `TestEngineMatchesBatchRun` asserts. Live mode is the terminal stand-in for the M1 web control surface: both drive the same engine.
 
 ## Documentation
 

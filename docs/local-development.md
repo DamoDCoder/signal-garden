@@ -23,7 +23,7 @@ make load        # run a deterministic event burst
 make replay      # replay a fixture event log
 ```
 
-M0 needs only `make test` and `make run`. The rest arrive with the milestone that makes them meaningful.
+M0 needed only `make test` and `make run`. `make live` arrived with the M1 run engine, and drives a clock-paced run from the terminal before any service boundary exists. The rest arrive with the milestone that makes them meaningful.
 
 ## Local Principles
 

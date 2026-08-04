@@ -23,7 +23,9 @@ Each milestone must end with something runnable, measurable, or reviewable. The 
 
 **Goal:** connect one user action to a live garden projection.
 
-**Build:** Go services, gRPC internal calls, generated REST gateway for public control/query endpoints, WebSocket projection stream, React control surface, and Docker Compose.
+**Build:** a live run engine, Go services, gRPC internal calls, generated REST gateway for public control/query endpoints, WebSocket projection stream, React control surface, and Docker Compose.
+
+The run engine lands first and carries no transport: run lifecycle, control revisions, and projection fan-out are testable against a manual clock before any codegen exists, and the gRPC service and WebSocket gateway both become adapters over it. See [0002](decisions/0002-run-lifecycle-lives-in-an-engine-package.md).
 
 **Feedback demo:** start a run, adjust four controls, observe the garden, event rate, processing latency, and connection status.
 

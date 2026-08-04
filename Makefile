@@ -1,8 +1,8 @@
-.PHONY: help test test-race run demo build fmt vet check clean
+.PHONY: help test test-race run live demo build fmt vet check clean
 
-# M0 needs only test and run. The proto, dev, reset, load, and replay targets
-# in docs/local-development.md arrive with the milestone that makes them
-# meaningful, rather than sitting here failing.
+# The proto, dev, reset, load, and replay targets in docs/local-development.md
+# arrive with the milestone that makes them meaningful, rather than sitting
+# here failing.
 
 help: ## Show available targets
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -15,6 +15,9 @@ test-race: ## Run unit tests under the race detector
 
 run: ## Run a simulation with default controls
 	go run ./cmd/signalgarden
+
+live: ## Run live: a frame per tick, steered by typed commands
+	go run ./cmd/signalgarden -live -ticks 0 -interval 300ms
 
 demo: ## Run three contrasting scenarios back to back
 	@echo "=== balanced ==="

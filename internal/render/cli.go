@@ -1,8 +1,8 @@
-// Package render turns a run result into text.
+// Package render turns run results and live projection frames into text.
 //
-// This is the M0 projection surface. At M1 the same Result feeds a React
-// client over WebSockets; keeping rendering out of the run loop is what makes
-// that swap a new package rather than a rewrite.
+// This is the terminal projection surface. The React client will consume the
+// same snapshots over WebSockets; keeping rendering out of the run loop and the
+// engine is what makes that a new package rather than a rewrite.
 package render
 
 import (
@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/damodbear/signal-garden/internal/domain"
+	"github.com/damodbear/signal-garden/internal/processor"
 	"github.com/damodbear/signal-garden/internal/run"
 )
 
@@ -33,27 +34,41 @@ func Scorecard(w io.Writer, r run.Result) error {
 		fmt.Fprintf(&b, "revisions  %d control changes applied\n", r.Revisions)
 	}
 
+	gardenSection(&b, r.Organisms, r.Garden)
+	eventsSection(&b, r.Published, r.Processor)
+
+	fmt.Fprintf(&b, "\nsnapshot   %s\n", r.Snapshot)
+	b.WriteString("\nSame seed, ticks, and controls reproduce this snapshot exactly.\n")
+
+	_, err := io.WriteString(w, b.String())
+	return err
+}
+
+// gardenSection writes the garden picture and its averages. Batch and live
+// reports share it so the two are comparable line by line.
+func gardenSection(b *strings.Builder, organisms []domain.Organism, g domain.Stats) {
 	b.WriteString("\nGarden\n")
 	b.WriteString(strings.Repeat("-", 52) + "\n")
-	b.WriteString(gardenGrid(r.Organisms))
+	b.WriteString(gardenGrid(organisms))
 
-	g := r.Garden
-	fmt.Fprintf(&b, "\nalive      %d/%d\n", g.Alive, g.Organisms)
-	fmt.Fprintf(&b, "health     %.1f avg\n", g.AverageHP)
-	fmt.Fprintf(&b, "moisture   %.1f avg\n", g.AverageMoist)
-	fmt.Fprintf(&b, "stage      %.2f avg (%d total)\n", g.AverageStage, g.TotalStage)
+	fmt.Fprintf(b, "\nalive      %d/%d\n", g.Alive, g.Organisms)
+	fmt.Fprintf(b, "health     %.1f avg\n", g.AverageHP)
+	fmt.Fprintf(b, "moisture   %.1f avg\n", g.AverageMoist)
+	fmt.Fprintf(b, "stage      %.2f avg (%d total)\n", g.AverageStage, g.TotalStage)
+}
 
-	p := r.Processor
+// eventsSection writes the processing counters.
+func eventsSection(b *strings.Builder, published int, p processor.Stats) {
 	b.WriteString("\nEvents\n")
 	b.WriteString(strings.Repeat("-", 52) + "\n")
-	fmt.Fprintf(&b, "published  %d\n", r.Published)
-	fmt.Fprintf(&b, "received   %d\n", p.Received)
-	fmt.Fprintf(&b, "applied    %d\n", p.Applied)
-	fmt.Fprintf(&b, "no effect  %d\n", p.NoEffect)
-	fmt.Fprintf(&b, "duplicates %d (dropped by idempotency key)\n", p.Duplicates)
-	fmt.Fprintf(&b, "rejected   %d\n", p.Rejected)
+	fmt.Fprintf(b, "published  %d\n", published)
+	fmt.Fprintf(b, "received   %d\n", p.Received)
+	fmt.Fprintf(b, "applied    %d\n", p.Applied)
+	fmt.Fprintf(b, "no effect  %d\n", p.NoEffect)
+	fmt.Fprintf(b, "duplicates %d (dropped by idempotency key)\n", p.Duplicates)
+	fmt.Fprintf(b, "rejected   %d\n", p.Rejected)
 	if p.UnknownEntity > 0 {
-		fmt.Fprintf(&b, "unknown    %d\n", p.UnknownEntity)
+		fmt.Fprintf(b, "unknown    %d\n", p.UnknownEntity)
 	}
 
 	// Fixed order: ranging the ByType map directly would vary the report
@@ -63,15 +78,9 @@ func Scorecard(w io.Writer, r run.Result) error {
 		if i > 0 {
 			b.WriteString("  ")
 		}
-		fmt.Fprintf(&b, "%s=%d", t, p.ByType[t])
+		fmt.Fprintf(b, "%s=%d", t, p.ByType[t])
 	}
 	b.WriteString("\n")
-
-	fmt.Fprintf(&b, "\nsnapshot   %s\n", r.Snapshot)
-	b.WriteString("\nSame seed, ticks, and controls reproduce this snapshot exactly.\n")
-
-	_, err := io.WriteString(w, b.String())
-	return err
 }
 
 // gardenGrid renders organisms as a grid of glyphs, ten per row. Dead
