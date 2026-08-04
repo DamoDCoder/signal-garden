@@ -34,6 +34,27 @@ A frame prints per tick. Type `rate 20`, `rain 1`, `growth 4`, `pest 5`, `pause`
 
 The same controls applied at the same ticks reach the same garden in either mode, which is what `TestEngineMatchesBatchRun` asserts. Live mode is the terminal stand-in for the M1 web control surface: both drive the same engine.
 
+## Server
+
+```sh
+make serve   # gRPC on :9090, generated REST gateway on :8080
+```
+
+The REST routes are generated from [proto/signal/garden/v1/garden.proto](proto/signal/garden/v1/garden.proto); see [docs/contracts.md](docs/contracts.md) for the full surface and its error codes.
+
+```sh
+curl -X POST localhost:8080/v1/runs -H 'content-type: application/json' \
+  -d '{"seed":42,"organisms":20,"controls":{"events_per_tick":6,"rain_weight":3,"growth_weight":2,"pest_weight":1}}'
+
+curl -X PATCH localhost:8080/v1/runs/run-0001/controls -H 'content-type: application/json' \
+  -d '{"events_per_tick":20,"rain_weight":1,"growth_weight":1,"pest_weight":5}'
+
+curl localhost:8080/v1/runs/run-0001/snapshot
+curl localhost:8080/v1/runs/run-0001/telemetry
+```
+
+`GET /healthz` and `GET /readyz` are the liveness and readiness checks. Regenerate the contract with `make proto`, which needs protoc; building and testing do not.
+
 ## Documentation
 
 - [Roadmap](docs/roadmap.md): milestones, exit criteria, and what is deliberately deferred.

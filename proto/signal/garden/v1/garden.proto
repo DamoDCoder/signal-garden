@@ -1,0 +1,255 @@
+// Signal Garden's public contract.
+//
+// This file is the source of truth for both the internal gRPC surface and the
+// generated public REST routes. The routes below match docs/contracts.md; the
+// method shapes match internal/engine, which owns run lifecycle. Generated code
+// is never hand-edited.
+//
+// WebSocket projection is deliberately absent. It is a read stream rather than
+// a second command API, so it is not a gRPC method, per docs/architecture.md.
+syntax = "proto3";
+
+package signal.garden.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/damodbear/signal-garden/internal/gen/signal/garden/v1;gardenv1";
+
+// RunState is the run lifecycle state. The zero value is unspecified rather
+// than a real state, so a message that never set it cannot be mistaken for a
+// running run.
+enum RunState {
+  RUN_STATE_UNSPECIFIED = 0;
+  RUN_STATE_RUNNING = 1;
+  RUN_STATE_PAUSED = 2;
+  RUN_STATE_FINISHED = 3;
+}
+
+// Controls are the knobs a player turns during a run: how many events each
+// tick produces, and the relative mix of event types.
+//
+// Worker count, batch size, and retry policy arrive at M2 with Kafka. They are
+// meaningless while the processor drains inside the tick, so they are not
+// reserved here; new controls take new field numbers when they become real.
+message Controls {
+  int32 events_per_tick = 1;
+  int32 rain_weight = 2;
+  int32 growth_weight = 3;
+  int32 pest_weight = 4;
+}
+
+// Run is the lifecycle view of a simulation.
+message Run {
+  string run_id = 1;
+  int64 seed = 2;
+  int32 organisms = 3;
+  RunState state = 4;
+
+  // tick counts completed simulation ticks. It is simulation time, and it is
+  // the only clock replay reproduces.
+  int64 tick = 5;
+
+  // max_ticks finishes the run automatically once reached. Zero runs until
+  // FinishRun is called.
+  int64 max_ticks = 6;
+
+  // tick_interval is the wall-clock pace of the run. It affects how fast a
+  // player sees the garden change, never where the garden ends up.
+  google.protobuf.Duration tick_interval = 7;
+
+  Controls controls = 8;
+  int32 revision = 9;
+
+  google.protobuf.Timestamp started_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  google.protobuf.Timestamp finished_at = 12;
+
+  // failure records why a run ended early. Empty for runs that ended normally.
+  string failure = 13;
+
+  int32 schema_version = 14;
+}
+
+// Organism is one plant in the garden.
+message Organism {
+  string id = 1;
+  int32 moisture = 2;
+  int32 health = 3;
+  int32 stage = 4;
+}
+
+// GardenStats summarizes garden condition without listing every organism.
+message GardenStats {
+  int32 organisms = 1;
+  int32 alive = 2;
+  double average_moisture = 3;
+  double average_health = 4;
+  double average_stage = 5;
+  int32 total_stage = 6;
+}
+
+// GardenSnapshot is one projection frame: the garden after a given tick.
+//
+// It carries run_id, sequence, and schema_version because it participates in
+// reconciliation: a reconnecting client compares its last sequence against the
+// one it receives to learn how far behind it fell.
+message GardenSnapshot {
+  string run_id = 1;
+  int64 sequence = 2;
+  int64 tick = 3;
+  int32 revision = 4;
+  RunState state = 5;
+  GardenStats stats = 6;
+  repeated Organism organisms = 7;
+
+  // hash fingerprints garden state. Two runs with the same seed and the same
+  // control ticks produce the same hash, which is how replay is verified.
+  string hash = 8;
+
+  google.protobuf.Timestamp observed_at = 9;
+  int32 schema_version = 10;
+}
+
+// ProcessorStats counts what the processor did with the events it received.
+message ProcessorStats {
+  int64 received = 1;
+  int64 applied = 2;
+  int64 no_effect = 3;
+  int64 duplicates = 4;
+  int64 rejected = 5;
+  int64 unknown_entity = 6;
+  map<string, int64> by_type = 7;
+}
+
+// TelemetrySnapshot is what the performance panel reads. M3 turns these
+// counters into histograms; here they are plain totals.
+message TelemetrySnapshot {
+  string run_id = 1;
+  RunState state = 2;
+  int64 tick = 3;
+  int32 revision = 4;
+  google.protobuf.Duration tick_interval = 5;
+  int64 published = 6;
+  ProcessorStats processor = 7;
+
+  // pending is events published but not yet processed. It is zero while the
+  // processor drains inside the tick, and becomes consumer lag at M2.
+  int64 pending = 8;
+
+  int32 subscribers = 9;
+  int64 snapshots_sent = 10;
+  int64 snapshots_dropped = 11;
+  google.protobuf.Duration uptime = 12;
+  google.protobuf.Timestamp observed_at = 13;
+  int32 schema_version = 14;
+}
+
+// ControlRevision is the receipt for an accepted control update.
+message ControlRevision {
+  string run_id = 1;
+  int32 revision = 2;
+  Controls controls = 3;
+
+  // effective_tick is the tick at which the producer starts obeying these
+  // controls. A change accepted partway through a tick lands on the next
+  // boundary, so this number is what replay needs; acceptance wall-clock time
+  // is not part of the simulation.
+  int64 effective_tick = 4;
+}
+
+// RunSummary is the scorecard a finished run leaves behind.
+message RunSummary {
+  Run run = 1;
+  GardenSnapshot snapshot = 2;
+  TelemetrySnapshot telemetry = 3;
+}
+
+message StartRunRequest {
+  // run_id is optional. The service generates one when it is empty.
+  string run_id = 1;
+  int64 seed = 2;
+  int32 organisms = 3;
+  Controls controls = 4;
+  google.protobuf.Duration tick_interval = 5;
+  int64 max_ticks = 6;
+
+  // duplicate_every republishes every Nth event of a tick, which makes the
+  // idempotency demo a control rather than a test-only code path.
+  int32 duplicate_every = 7;
+}
+
+message GetRunRequest {
+  string run_id = 1;
+}
+
+message UpdateControlsRequest {
+  string run_id = 1;
+  Controls controls = 2;
+}
+
+// PauseRunRequest carries the desired paused state rather than only pausing,
+// so resuming is the same method with paused=false. A separate ResumeRun would
+// be a second way to say the same thing.
+message PauseRunRequest {
+  string run_id = 1;
+  bool paused = 2;
+}
+
+message FinishRunRequest {
+  string run_id = 1;
+}
+
+message GetSnapshotRequest {
+  string run_id = 1;
+}
+
+message GetTelemetryRequest {
+  string run_id = 1;
+}
+
+// GardenService is the control and query surface. It is served internally over
+// gRPC; the REST routes below are generated from the same definitions and are
+// the only public entry points.
+service GardenService {
+  rpc StartRun(StartRunRequest) returns (Run) {
+    option (google.api.http) = {
+      post: "/v1/runs"
+      body: "*"
+    };
+  }
+
+  rpc GetRun(GetRunRequest) returns (Run) {
+    option (google.api.http) = {get: "/v1/runs/{run_id}"};
+  }
+
+  rpc UpdateControls(UpdateControlsRequest) returns (ControlRevision) {
+    option (google.api.http) = {
+      patch: "/v1/runs/{run_id}/controls"
+      body: "controls"
+    };
+  }
+
+  rpc PauseRun(PauseRunRequest) returns (Run) {
+    option (google.api.http) = {
+      post: "/v1/runs/{run_id}:pause"
+      body: "*"
+    };
+  }
+
+  rpc FinishRun(FinishRunRequest) returns (RunSummary) {
+    option (google.api.http) = {
+      post: "/v1/runs/{run_id}:finish"
+      body: "*"
+    };
+  }
+
+  rpc GetSnapshot(GetSnapshotRequest) returns (GardenSnapshot) {
+    option (google.api.http) = {get: "/v1/runs/{run_id}/snapshot"};
+  }
+
+  rpc GetTelemetry(GetTelemetryRequest) returns (TelemetrySnapshot) {
+    option (google.api.http) = {get: "/v1/runs/{run_id}/telemetry"};
+  }
+}

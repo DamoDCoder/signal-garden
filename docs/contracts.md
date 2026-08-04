@@ -1,12 +1,14 @@
 # Signal Garden Contracts
 
-## When These Contracts Land
+## Where These Contracts Live
 
-M0 is a single process with no service boundary, so it defines its seams as Go interfaces rather than protobuf. Everything below is the M1 target: it takes effect when the control service, projection gateway, and processor become separate processes. The M0 interfaces are written to match these method shapes so the translation is mechanical.
+The contract is [proto/signal/garden/v1/garden.proto](../proto/signal/garden/v1/garden.proto). Generated Go lands in `internal/gen/` and is committed, so a clean checkout builds without protoc; only regeneration needs the toolchain. Run `make proto`. See [0003](decisions/0003-generate-with-protoc-and-vendored-googleapis.md) for why generation uses protoc with vendored googleapis protos rather than buf.
+
+M0 defined these seams as Go interfaces rather than protobuf, because a single process has no boundary to separate — see [0001](decisions/0001-defer-grpc-to-m1.md). The service is an adapter over `internal/engine`, which owns run lifecycle.
 
 ## Protobuf And gRPC
 
-The first contract file should define a versioned package such as `signal.garden.v1` and generate Go server/client code plus the REST gateway. Initial methods:
+The contract defines package `signal.garden.v1` and generates Go server/client code plus the REST gateway. Methods:
 
 ```text
 StartRun(StartRunRequest) returns (Run)
@@ -18,7 +20,19 @@ GetSnapshot(GetSnapshotRequest) returns (GardenSnapshot)
 GetTelemetry(GetTelemetryRequest) returns (TelemetrySnapshot)
 ```
 
-The exact `.proto` files belong in the standalone project repository. This planning pack defines the boundary before implementation; generated code should never be hand-edited.
+`PauseRunRequest` carries a `paused` boolean rather than pairing with a separate `ResumeRun`, so the two directions are one method with one meaning.
+
+Generated code is never hand-edited.
+
+Errors map to status codes rather than message text, because that mapping is what a client branches on:
+
+| Condition | gRPC code | REST |
+| --- | --- | --- |
+| No such run | `NOT_FOUND` | 404 |
+| Run ID already in use | `ALREADY_EXISTS` | 409 |
+| Command against a finished run | `FAILED_PRECONDITION` | 400 |
+| Rejected controls or start request | `INVALID_ARGUMENT` | 400 |
+| Registry shutting down | `UNAVAILABLE` | 503 |
 
 ## Generated REST Surface
 

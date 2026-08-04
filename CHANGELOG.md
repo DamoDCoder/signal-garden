@@ -12,6 +12,9 @@ The project has not reached its first versioned release. Until then, work is gro
 - `internal/engine`: live run lifecycle — start, pause, resume, finish, control revisions applied on tick boundaries, and projection fan-out to subscribers. Its method shapes match the service definitions in `docs/contracts.md`, so the M1 gRPC service becomes an adapter rather than a second implementation.
 - `internal/sim`: the per-tick simulation core, shared by the batch runner and the live engine so replay and live play cannot drift apart.
 - `signalgarden -live`: paces a run on a clock, streams a frame per tick, and accepts typed control changes. The terminal stand-in for the M1 control surface.
+- `proto/signal/garden/v1/garden.proto`: the versioned contract, with the seven methods and the exact REST routes from `docs/contracts.md`. Generated Go is committed under `internal/gen/`; `make proto` regenerates it from plugins pinned in `go.mod`.
+- `internal/service`: the gRPC adapter over the run engine. It holds no state and maps engine sentinel errors to status codes, so clients branch on codes rather than message text.
+- `cmd/signalgardend`: serves gRPC on `:9090` and the generated REST gateway on `:8080`, with `/healthz`, `/readyz`, gRPC health, and reflection. The gateway dials the gRPC listener rather than calling in process, so the hop the architecture describes is a real one.
 
 ### Changed
 

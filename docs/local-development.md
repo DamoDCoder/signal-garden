@@ -23,7 +23,9 @@ make load        # run a deterministic event burst
 make replay      # replay a fixture event log
 ```
 
-M0 needed only `make test` and `make run`. `make live` arrived with the M1 run engine, and drives a clock-paced run from the terminal before any service boundary exists. The rest arrive with the milestone that makes them meaningful.
+M0 needed only `make test` and `make run`. The M1 slices added `make live` (a clock-paced run driven from the terminal), `make proto` (regenerate from `proto/`), and `make serve` (gRPC on `:9090`, generated REST on `:8080`). `make dev` arrives with Docker Compose; the rest arrive with the milestone that makes them meaningful.
+
+`make proto` needs protoc on the PATH. The plugins are pinned by the tool directives in `go.mod` and built into `bin/tools`, and the googleapis annotation protos are vendored in `third_party/`, so generation runs offline. Generated code is committed, so building and testing need none of this.
 
 ## Local Principles
 
