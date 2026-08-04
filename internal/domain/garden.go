@@ -1,0 +1,128 @@
+package domain
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+)
+
+// Organism bounds. Health and moisture are percentages; stage is a discrete
+// growth step so the CLI and, later, the UI can render a shape rather than a
+// float.
+const (
+	MaxMoisture = 100
+	MaxHealth   = 100
+	MaxStage    = 5
+)
+
+// Organism is one plant in the garden.
+type Organism struct {
+	ID       string `json:"id"`
+	Moisture int    `json:"moisture"`
+	Health   int    `json:"health"`
+	Stage    int    `json:"stage"`
+}
+
+// Alive reports whether the organism can still respond to events. A dead
+// organism absorbs rain and pest events without effect, which keeps event
+// counts honest rather than silently dropping deliveries.
+func (o Organism) Alive() bool {
+	return o.Health > 0
+}
+
+// Garden is the projection the processor owns. Organisms are held in a slice so
+// iteration order is deterministic; index maps lookup by ID without ever being
+// ranged over.
+type Garden struct {
+	organisms []Organism
+	index     map[string]int
+}
+
+// NewGarden creates a garden of n organisms at full health, no moisture, and
+// stage zero. IDs are stable and zero-padded so they sort lexically.
+func NewGarden(n int) (*Garden, error) {
+	if n < 1 {
+		return nil, fmt.Errorf("garden needs at least 1 organism, got %d", n)
+	}
+	g := &Garden{
+		organisms: make([]Organism, n),
+		index:     make(map[string]int, n),
+	}
+	for i := range g.organisms {
+		id := OrganismID(i)
+		g.organisms[i] = Organism{ID: id, Health: MaxHealth}
+		g.index[id] = i
+	}
+	return g, nil
+}
+
+// OrganismID returns the stable ID for the organism at position i.
+func OrganismID(i int) string {
+	return fmt.Sprintf("org-%03d", i)
+}
+
+// Len returns the organism count.
+func (g *Garden) Len() int { return len(g.organisms) }
+
+// Organisms returns a copy of the organism slice, so callers cannot mutate
+// projection state without going through the rules.
+func (g *Garden) Organisms() []Organism {
+	out := make([]Organism, len(g.organisms))
+	copy(out, g.organisms)
+	return out
+}
+
+// Get returns the organism with the given ID.
+func (g *Garden) Get(id string) (Organism, bool) {
+	i, ok := g.index[id]
+	if !ok {
+		return Organism{}, false
+	}
+	return g.organisms[i], true
+}
+
+// Stats summarizes garden condition for the projection and the run scorecard.
+type Stats struct {
+	Organisms    int     `json:"organisms"`
+	Alive        int     `json:"alive"`
+	AverageMoist float64 `json:"average_moisture"`
+	AverageHP    float64 `json:"average_health"`
+	AverageStage float64 `json:"average_stage"`
+	TotalStage   int     `json:"total_stage"`
+}
+
+// Stats computes the current garden summary.
+func (g *Garden) Stats() Stats {
+	s := Stats{Organisms: len(g.organisms)}
+	if len(g.organisms) == 0 {
+		return s
+	}
+	var moist, hp, stage int
+	for _, o := range g.organisms {
+		if o.Alive() {
+			s.Alive++
+		}
+		moist += o.Moisture
+		hp += o.Health
+		stage += o.Stage
+	}
+	n := float64(len(g.organisms))
+	s.AverageMoist = float64(moist) / n
+	s.AverageHP = float64(hp) / n
+	s.AverageStage = float64(stage) / n
+	s.TotalStage = stage
+	return s
+}
+
+// Hash returns a stable fingerprint of garden state.
+//
+// docs/events.md requires that replaying the same fixture with the same rules
+// version produces the same snapshot hash. This is that hash: the replay tests
+// compare it rather than diffing whole structures.
+func (g *Garden) Hash() string {
+	h := sha256.New()
+	for _, o := range g.organisms {
+		fmt.Fprintf(h, "%s|%d|%d|%d\n", o.ID, o.Moisture, o.Health, o.Stage)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
