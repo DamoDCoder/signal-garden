@@ -1,0 +1,25 @@
+# Build output
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+
+# Local state and fixtures produced by runs
+/tmp/
+/.local/
+
+# Editor and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Environment
+.env
+.env.*
+!.env.example
