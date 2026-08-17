@@ -2,13 +2,32 @@
 
 All notable changes to this project are documented here.
 
-The project has not reached its first versioned release. Until then, work is grouped under `Unreleased`.
+Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor version is a milestone's worth of work, and the project stays on `0.x` until M4 makes a first release meaningful.
 
 ## [Unreleased]
 
+Nothing yet. M2 slice 2 is in progress.
+
+## [0.3.0] — 2026-08-17
+
+The M2 backbone decided, before any of it is built.
+
 ### Added
 
-- Project pack imported from the ideas cradle: roadmap, architecture, contracts, event model, local development, and feedback plan.
+- `github.com/DamoDCoder/event-spine v0.2.0` as a dependency, ahead of the M2 work that uses it. Its surface is v0 and expected to move, so it is pinned rather than tracked. Nothing imports it yet.
+- Decision records 0004 through 0008: the Event Spine log replaces Kafka as the M2 backbone, one log per run owned by that run's goroutine, the daemon refuses to start on corrupt recovery, run logs are never compacted, and determinism is asserted on a chain rather than a terminal garden hash.
+
+### Changed
+
+- M2 is no longer a Kafka milestone. The event transport becomes an in-process append-only log, which turns the durability properties the milestone exists to prove into unit tests against a crashable filesystem. `docs/architecture.md`, `docs/events.md`, `docs/roadmap.md`, `docs/local-development.md`, and `docs/feedback.md` were rewritten to match; Kafka moves to Later Extensions.
+- M2 gains an exit criterion it could not have had under a broker: a run survives a simulated power cut at every tick boundary, in all three crash shapes, losing nothing the log acknowledged as durable.
+
+## [0.2.0] — 2026-08-05
+
+M1's server half: a live run, and a contract for talking to it.
+
+### Added
+
 - `internal/engine`: live run lifecycle — start, pause, resume, finish, control revisions applied on tick boundaries, and projection fan-out to subscribers. Its method shapes match the service definitions in `docs/contracts.md`, so the M1 gRPC service becomes an adapter rather than a second implementation.
 - `internal/sim`: the per-tick simulation core, shared by the batch runner and the live engine so replay and live play cannot drift apart.
 - `signalgarden -live`: paces a run on a clock, streams a frame per tick, and accepts typed control changes. The terminal stand-in for the M1 control surface.
@@ -16,13 +35,27 @@ The project has not reached its first versioned release. Until then, work is gro
 - `internal/service`: the gRPC adapter over the run engine. It holds no state and maps engine sentinel errors to status codes, so clients branch on codes rather than message text.
 - `cmd/signalgardend`: serves gRPC on `:9090` and the generated REST gateway on `:8080`, with `/healthz`, `/readyz`, gRPC health, and reflection. The gateway dials the gRPC listener rather than calling in process, so the hop the architecture describes is a real one.
 
-- `github.com/DamoDCoder/event-spine v0.2.0` as a dependency, ahead of the M2 work that uses it. Its surface is v0 and expected to move, so it is pinned rather than tracked.
-- Decision records 0004 through 0008: the Event Spine log replaces Kafka as the M2 backbone, one log per run owned by that run's goroutine, the daemon refuses to start on corrupt recovery, run logs are never compacted, and determinism is asserted on a chain rather than a terminal garden hash.
-
 ### Changed
 
 - `run.Execute` now drives `internal/sim` instead of owning the tick loop. Behavior and determinism are unchanged; the M0 test suite passes untouched.
-- M2 is no longer a Kafka milestone. The event transport becomes an in-process append-only log, which turns the durability properties the milestone exists to prove into unit tests against a crashable filesystem. `docs/architecture.md`, `docs/events.md`, `docs/roadmap.md`, `docs/local-development.md`, and `docs/feedback.md` were rewritten to match; Kafka moves to Later Extensions.
+
+### Not yet
+
+- WebSocket projection stream, React control surface, and Docker Compose. M1 is not complete.
+
+## [0.1.0] — 2026-08-04
+
+M0: the event path and the simulation rules, with no external dependencies.
+
+### Added
+
+- Project pack imported from the ideas cradle: roadmap, architecture, contracts, event model, local development, and feedback plan.
+- `internal/domain`: the garden, its organisms, the rain, growth, and pest rules, and control validation.
+- `internal/event`: the transport-neutral envelope, with simulation time separated from wall-clock time and a per-type idempotency key.
+- `internal/bus`, `internal/producer`, `internal/processor`: an ordered in-memory queue, a seeded deterministic producer, and an idempotent processor that owns the garden projection.
+- `internal/run` and `signalgarden`: a batch orchestrator that runs a garden to completion from a seed, and a CLI that prints its scorecard with event counters.
+
+### Changed
 
 - M0 no longer requires protobuf or gRPC. A single process has no service boundary to separate, so M0 defines its seams as Go interfaces and M1 introduces the wire contracts when a second process makes them load-bearing.
 - M0 projection is a CLI rather than a React screen, which keeps the milestone free of the Node toolchain.
