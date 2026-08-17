@@ -77,6 +77,35 @@ go run ./cmd/signalgarden -replay -run demo -data ./data # rebuild that garden f
 
 Replay reaches the same snapshot hash the live run ended on, in a different process, from the records alone. A snapshot is written every 50 ticks and once more at the end, purely so a restart folds fewer records — delete every `snapshot-*.state` in the run's directory and replay prints the same garden, more slowly.
 
+## Picking Up From Here
+
+Branch `feat/adopt-event-spine`, tags `v0.1.0` through `v0.4.0`, no remote configured yet. Everything passes under `make check`.
+
+M2's exit criteria stand at: duplicate delivery ✓, replay determinism on a chain ✓, crash survival ✓, keys and retention documented ✓. Reconnect catch-up is the one still open, and it is waiting on the WebSocket stream rather than on anything durable.
+
+### 1. Make the producer resumable
+
+The blocker for resuming a live run after a restart, and the reason `v0.4.0` restores projections but not runs.
+
+A garden is the fold of a history, so it restores from one. A producer is a *position in a seeded stream* — `producer.Producer` holds a live `*rand.Rand` — and `math/rand` offers no way to write that position down. So `sim.Rebuild` can reconstruct what a run produced, and a restarted daemon still cannot carry on producing where it left off.
+
+Two shapes worth weighing before writing anything:
+
+- **Derive per tick.** Seed a fresh stream from `(seed, tick)` each tick, so position is a number rather than state. Resume becomes free. Changes every existing event stream, so the seed-42 fixtures and `732dc9ba` move.
+- **Carry a seekable source.** Replace `math/rand` with a source whose state serialises into the snapshot. Keeps existing streams intact; adds a dependency or a hand-written PRNG, and the snapshot gains a field that must version alongside it.
+
+The second preserves `SnapshotSchemaVersion` compatibility; the first is simpler forever after. Either way, `TestSnapshotCadenceDoesNotChangeTheRun` and the chain tests are the guard rails.
+
+### 2. Log offsets on the wire
+
+`TelemetrySnapshot.Pending` is already real consumer lag, but the log's own offsets never leave the process. Add committed offset and log offset to `garden.proto` and the projection frame, then reconnect catch-up reading from a client's last sequence rather than only the newest snapshot.
+
+This needs a proto regeneration, which is also where the last stale Kafka comment dies — `proto/signal/garden/v1/garden.proto:33` and its generated twin still say worker count and batch size "arrive at M2 with Kafka". It was left deliberately, because touching it means a codegen run and this slice does one anyway.
+
+### 3. M1's unfinished half
+
+WebSocket projection stream, React control surface, Docker Compose. The `v0.2.0` changelog entry says plainly that M1 is not complete. Item 2 touches the WebSocket frame, so the two are adjacent but not the same work — the stream itself slots onto `engine.Subscribe`, which has been waiting since the first M1 slice.
+
 ## Documentation
 
 - [Roadmap](docs/roadmap.md): milestones, exit criteria, and what is deliberately deferred.
