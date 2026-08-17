@@ -9,6 +9,16 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 ### Added
 
 - `internal/event/codec.go`: `Event.ToCore` and `FromCore`, mapping the envelope onto the durable log record. PartitionKey, OccurredAt, and SchemaVersion become the record header; the rest becomes a JSON payload. `recorded_at` is not written at all, so two runs of the same seed produce byte-identical records — asserted directly rather than assumed.
+- `internal/eventlog`: one append-only log per run, with the `projections` consumer group and `Sync` durability. Appending, reading, replaying, and committing are separate operations, and committing is deliberately not one of them yet — the garden is in memory until snapshots land, so a commit would let a restart resume past records it could no longer replay.
+
+### Changed
+
+- `internal/sim` appends a whole tick in one call and folds what the log hands back, instead of publishing to an in-memory queue and draining it. A tick costs one fsync regardless of how many events it produced. The seed-42 scorecard is byte-identical to the previous implementation's.
+- `Sim` owns a log and must be `Close`d. `run.Execute` closes it on return; a live run closes it when its goroutine exits, which is after finishing rather than at it, because a finished run still answers telemetry that reads the log's offsets.
+
+### Removed
+
+- `internal/bus`. The in-memory queue was the M0 seam and the log now occupies it. Tests reach a real log through the spine's in-memory filesystem, so there is one transport and the path under test is the path that ships.
 
 ## [0.3.0] — 2026-08-17
 

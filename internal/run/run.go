@@ -98,6 +98,9 @@ func Execute(cfg Config) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	// A batch run's log is ephemeral: it lives in memory, exists so the
+	// events take the same path they take live, and goes when the run does.
+	defer func() { _ = s.Close() }()
 
 	for tick := int64(0); tick < cfg.Ticks; tick++ {
 		if next, ok := cfg.ControlChanges[tick]; ok {

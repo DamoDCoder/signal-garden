@@ -540,6 +540,13 @@ type liveRun struct {
 // of by locking discipline.
 func (r *liveRun) loop() {
 	defer close(r.done)
+
+	// The log's lifetime is the run's, and the run outlives finishing: a
+	// finished run still answers GetSnapshot and GetTelemetry, and telemetry
+	// reads the log's offsets. So the close belongs here, where the owner
+	// goroutine is actually going away, rather than in finish.
+	defer func() { _ = r.sim.Close() }()
+
 	for {
 		select {
 		case <-r.tickC():

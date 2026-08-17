@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
@@ -22,6 +23,7 @@ func mustNew(t *testing.T, cfg Config) *Sim {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
 
@@ -148,5 +150,75 @@ func TestNewRejectsInvalidConfig(t *testing.T) {
 				t.Fatalf("New accepted %s", tc.name)
 			}
 		})
+	}
+}
+
+// The log is the run's history, so determinism has to hold at the byte level
+// and not only at the garden. Two runs of one seed must write records that are
+// identical in the encoding the log checksums — the same bytes a replay reads
+// back after a restart.
+func TestSameSeedWritesTheSameRecords(t *testing.T) {
+	const ticks = 25
+
+	record := func() [][]byte {
+		t.Helper()
+		s := mustNew(t, baseConfig())
+		mustStep(t, s, ticks)
+
+		events, err := s.Log().Replay()
+		if err != nil {
+			t.Fatalf("Replay: %v", err)
+		}
+		if len(events) == 0 {
+			t.Fatal("Replay returned nothing; the run wrote no records")
+		}
+
+		out := make([][]byte, len(events))
+		for i, e := range events {
+			rec, err := e.ToCore()
+			if err != nil {
+				t.Fatalf("ToCore: %v", err)
+			}
+			out[i] = rec.AppendCanonical(nil)
+		}
+		return out
+	}
+
+	first, second := record(), record()
+
+	if len(first) != len(second) {
+		t.Fatalf("runs wrote %d and %d records", len(first), len(second))
+	}
+	for i := range first {
+		if !bytes.Equal(first[i], second[i]) {
+			t.Fatalf("record %d differs between two runs of seed %d", i, baseConfig().Seed)
+		}
+	}
+}
+
+// Every event the producer emits reaches the log, duplicates included, and the
+// projection folds exactly what the log holds. A gap between these two numbers
+// is an event that was produced and never durably recorded.
+func TestEveryPublishedEventIsRecorded(t *testing.T) {
+	cfg := baseConfig()
+	cfg.DuplicateEvery = 3
+	s := mustNew(t, cfg)
+	mustStep(t, s, 12)
+
+	events, err := s.Log().Replay()
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	if len(events) != s.Published() {
+		t.Errorf("log holds %d records, the run published %d", len(events), s.Published())
+	}
+	if got := s.Log().Next(); got != int64(s.Published()) {
+		t.Errorf("log assigned %d offsets, the run published %d", got, s.Published())
+	}
+	if got := s.ProcessorStats().Received; got != s.Published() {
+		t.Errorf("processor received %d, the log holds %d", got, s.Published())
+	}
+	if got := s.Pending(); got != 0 {
+		t.Errorf("Pending() = %d between ticks, want 0", got)
 	}
 }

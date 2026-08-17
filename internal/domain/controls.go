@@ -13,8 +13,9 @@ const MaxEventsPerTick = 1000
 // Controls are the knobs a player turns during a run.
 //
 // M0 exposes only rate and event mix. Worker count, batch size, and retry
-// policy are meaningless in a single-threaded process with no queue, so they
-// arrive at M2 with Kafka rather than sitting here as inert fields.
+// policy are meaningless while the projection folds every record inside the
+// tick that appended it, so they arrive when the consumer can actually fall
+// behind rather than sitting here as inert fields.
 type Controls struct {
 	EventsPerTick int `json:"events_per_tick"`
 	RainWeight    int `json:"rain_weight"`

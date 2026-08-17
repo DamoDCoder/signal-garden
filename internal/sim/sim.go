@@ -1,5 +1,5 @@
-// Package sim holds one simulation's moving parts: producer, bus, processor,
-// and the garden they act on.
+// Package sim holds one simulation's moving parts: producer, event log,
+// processor, and the garden they act on.
 //
 // A Sim advances exactly one tick per Step and never decides when to Step. That
 // separation is the point: the batch runner in internal/run drives it as fast
@@ -11,8 +11,11 @@ package sim
 import (
 	"fmt"
 
-	"github.com/damodbear/signal-garden/internal/bus"
+	spinesim "github.com/DamoDCoder/event-spine/sim"
+
 	"github.com/damodbear/signal-garden/internal/domain"
+	"github.com/damodbear/signal-garden/internal/event"
+	"github.com/damodbear/signal-garden/internal/eventlog"
 	"github.com/damodbear/signal-garden/internal/processor"
 	"github.com/damodbear/signal-garden/internal/producer"
 )
@@ -28,6 +31,14 @@ type Config struct {
 	// DuplicateEvery republishes every Nth event of a tick to exercise
 	// idempotent processing. Zero disables duplication.
 	DuplicateEvery int
+
+	// Log is the run's durable event history. A nil Log gets one backed by
+	// an in-memory filesystem, which is what the batch runner and the tests
+	// want: a real log, real records, and nothing left on disk afterwards.
+	//
+	// Passing a Log hands over its ownership. Sim closes it, because a run's
+	// log lives exactly as long as the run — see docs/decisions/0005.
+	Log *eventlog.Log
 }
 
 // Validate checks the configuration before any state is created.
@@ -62,7 +73,7 @@ type Sim struct {
 	cfg    Config
 	garden *domain.Garden
 	prod   *producer.Producer
-	queue  *bus.Memory
+	log    *eventlog.Log
 	proc   *processor.Processor
 
 	tick      int64
@@ -73,6 +84,11 @@ type Sim struct {
 }
 
 // New creates a simulation positioned at tick zero.
+//
+// A Sim owns a log from this point on, so a Sim that is finished with must be
+// Closed. Callers that need to see what opening the log recovered pass an
+// already-open one in Config; the ephemeral log created here is fresh by
+// construction and has nothing to recover.
 func New(cfg Config) (*Sim, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid simulation config: %w", err)
@@ -85,14 +101,32 @@ func New(cfg Config) (*Sim, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	l := cfg.Log
+	if l == nil {
+		if l, _, err = eventlog.Open(spinesim.NewFS()); err != nil {
+			return nil, fmt.Errorf("open ephemeral log for run %s: %w", cfg.RunID, err)
+		}
+	}
+
 	return &Sim{
 		cfg:      cfg,
 		garden:   garden,
 		prod:     prod,
-		queue:    bus.NewMemory(),
+		log:      l,
 		proc:     processor.New(garden),
 		controls: cfg.Controls,
 	}, nil
+}
+
+// Close releases the run's log. It is safe to call more than once.
+func (s *Sim) Close() error {
+	if s.log == nil {
+		return nil
+	}
+	l := s.log
+	s.log = nil
+	return l.Close()
 }
 
 // SetControls accepts a control update and returns its revision number.
@@ -111,18 +145,23 @@ func (s *Sim) SetControls(c domain.Controls) (int, error) {
 	return s.revision, nil
 }
 
-// Step advances the simulation by exactly one tick: publish staged control
-// changes, produce this tick's events, then drain and process them.
+// Step advances the simulation by exactly one tick: stage control changes,
+// produce this tick's events, append them, then fold whatever the projection
+// has not seen.
 //
-// Draining within the tick means published and processed counts stay level. At
-// M2 the processor becomes an independent consumer group and the gap between
-// those two numbers becomes the lag a player can see.
+// The whole tick is one Append call. The log makes its durability decision once
+// per call rather than once per record, so a tick costs one fsync no matter how
+// many events it produced — and appending them one at a time would pay that
+// cost per event while making exactly the same records durable.
+//
+// Reading is separate from committing, and this method never commits. The
+// garden is in memory until a snapshot is written, so a commit here would let a
+// restart resume past records it could no longer replay. See the eventlog
+// package comment.
 func (s *Sim) Step() error {
+	batch := make([]event.Event, 0, len(s.pending))
 	for _, p := range s.pending {
-		if err := s.queue.Publish(s.prod.ControlChanged(s.tick, p.revision)); err != nil {
-			return fmt.Errorf("publish control change at tick %d: %w", s.tick, err)
-		}
-		s.published++
+		batch = append(batch, s.prod.ControlChanged(s.tick, p.revision))
 		s.controls = p.controls
 	}
 	s.pending = nil
@@ -132,21 +171,24 @@ func (s *Sim) Step() error {
 		return err
 	}
 	for i, e := range events {
-		if err := s.queue.Publish(e); err != nil {
-			return fmt.Errorf("publish at tick %d: %w", s.tick, err)
-		}
-		s.published++
+		batch = append(batch, e)
 		if s.cfg.DuplicateEvery > 0 && (i+1)%s.cfg.DuplicateEvery == 0 {
 			redelivery := e
 			redelivery.Attempt++
-			if err := s.queue.Publish(redelivery); err != nil {
-				return fmt.Errorf("republish at tick %d: %w", s.tick, err)
-			}
-			s.published++
+			batch = append(batch, redelivery)
 		}
 	}
 
-	if err := s.proc.ProcessBatch(s.queue.Drain()); err != nil {
+	if err := s.log.Append(batch...); err != nil {
+		return fmt.Errorf("append at tick %d: %w", s.tick, err)
+	}
+	s.published += len(batch)
+
+	unprocessed, err := s.log.Unprocessed()
+	if err != nil {
+		return fmt.Errorf("read at tick %d: %w", s.tick, err)
+	}
+	if err := s.proc.ProcessBatch(unprocessed); err != nil {
 		return fmt.Errorf("process tick %d: %w", s.tick, err)
 	}
 	s.tick++
@@ -167,12 +209,23 @@ func (s *Sim) Controls() domain.Controls { return s.controls }
 // Revision returns the number of control updates accepted so far.
 func (s *Sim) Revision() int { return s.revision }
 
-// Published returns the total events published to the bus, duplicates included.
+// Published returns the total events this simulation appended, duplicates
+// included.
 func (s *Sim) Published() int { return s.published }
 
-// Pending returns the events published but not yet processed. It is zero
-// between Steps today and becomes consumer lag at M2.
-func (s *Sim) Pending() int { return s.queue.Len() }
+// Pending returns the records appended but not yet folded into the garden —
+// consumer lag. It is zero between Steps, because the projection drains inside
+// the tick.
+func (s *Sim) Pending() int {
+	if s.log == nil {
+		return 0
+	}
+	return s.log.Pending()
+}
+
+// Log returns the run's event history. Callers read offsets and commit through
+// it; it is not safe to use from another goroutine.
+func (s *Sim) Log() *eventlog.Log { return s.log }
 
 // Stats returns the current garden summary.
 func (s *Sim) Stats() domain.Stats { return s.garden.Stats() }
