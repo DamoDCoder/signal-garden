@@ -6,7 +6,9 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 ## [Unreleased]
 
-Nothing yet. M2 slice 2 is in progress.
+### Added
+
+- `internal/event/codec.go`: `Event.ToCore` and `FromCore`, mapping the envelope onto the durable log record. PartitionKey, OccurredAt, and SchemaVersion become the record header; the rest becomes a JSON payload. `recorded_at` is not written at all, so two runs of the same seed produce byte-identical records — asserted directly rather than assumed.
 
 ## [0.3.0] — 2026-08-17
 

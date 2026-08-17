@@ -1,7 +1,9 @@
 // Package event defines the durable event envelope described in docs/events.md.
 //
 // The envelope is transport-neutral on purpose. At M0 it travels through an
-// in-memory bus; at M2 the same fields become the Kafka record and its key.
+// in-memory bus; at M2 codec.go maps it onto the durable log record, where
+// PartitionKey, OccurredAt, and SchemaVersion become the record header and the
+// rest becomes its payload.
 package event
 
 import (
@@ -46,7 +48,8 @@ type Payload struct {
 
 // Event is the durable envelope. OccurredAt is simulation time and may
 // influence outcomes; RecordedAt is wall-clock time and must not, because
-// replay reproduces the former and never the latter.
+// replay reproduces the former and never the latter. RecordedAt is therefore
+// not written to the log at all — see codec.go.
 type Event struct {
 	EventID       string    `json:"event_id"`
 	Type          Type      `json:"event_type"`
