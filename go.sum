@@ -1,3 +1,5 @@
+github.com/DamoDCoder/event-spine v0.2.0 h1:Da1wwe8gzl6LNcsg9E8v+xVAPBafq5pz6hDgbI+K1Fw=
+github.com/DamoDCoder/event-spine v0.2.0/go.mod h1:rabIaOeHT7p6mRJPLRwC/3gCRJVpLtCyeA/iK24j56I=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/go-logr/logr v1.4.3 h1:CjnDlHq8ikf6E492q6eKboGOC0T8CDaOvkHCIg8idEI=
 github.com/go-logr/logr v1.4.3/go.mod h1:9T104GzyrTigFIr8wt5mBrctHMim0Nb2HLGrmQ40KvY=

@@ -17,7 +17,7 @@ Each milestone must end with something runnable, measurable, or reviewable. The 
 - Domain tests cover rain, growth, pest, and duplicate event behavior.
 - The CLI can start a run, apply control changes, and print garden state with event counters.
 
-**Deliberately deferred:** protobuf, gRPC, the REST gateway, Kafka, Docker, and the document store. M0 has one process and no service boundary, so a wire contract has nothing to separate yet. Service boundaries and their protobuf definitions arrive at M1, where a second process makes them load-bearing. The Go interfaces written here are the seams those contracts will follow.
+**Deliberately deferred:** protobuf, gRPC, the REST gateway, the durable event log, Docker, and snapshot storage. M0 has one process and no service boundary, so a wire contract has nothing to separate yet. Service boundaries and their protobuf definitions arrive at M1, where a second process makes them load-bearing. The Go interfaces written here are the seams those contracts will follow.
 
 ## M1: Local Vertical Slice
 
@@ -38,9 +38,11 @@ The run engine lands first and carries no transport: run lifecycle, control revi
 
 ## M2: Event Backbone And Replay
 
-**Goal:** introduce Kafka and durable run history without changing the user-facing contract.
+**Goal:** introduce durable run history without changing the user-facing contract.
 
-**Build:** raw and processed topics, consumer group, document-store snapshots, event log metadata, replay command, idempotent processing, and reconnect catch-up.
+**Build:** the [Event Spine](https://github.com/DamoDCoder/event-spine) log as the event transport, one log per run, a `projections` consumer group, snapshots, a replay command, idempotent processing, and reconnect catch-up.
+
+Kafka was the original plan and is not the plan now. The log is an in-process library, so the durability properties this milestone exists to prove become unit tests against a crashable filesystem rather than assertions about a broker in Compose. See [0004](decisions/0004-event-spine-replaces-kafka-as-the-event-backbone.md); ownership, corrupt-recovery policy, and compaction are [0005](decisions/0005-one-log-per-run-owned-by-the-run-goroutine.md), [0006](decisions/0006-refuse-to-start-on-corrupt-recovery.md), and [0007](decisions/0007-never-compact-a-run-log.md).
 
 **Feedback demo:** stop the consumer, create lag, restart it, and replay the run to the same final state.
 
@@ -48,8 +50,9 @@ The run engine lands first and carries no transport: run lifecycle, control revi
 
 - Duplicate delivery does not corrupt the projection.
 - A disconnected client receives a snapshot and missed updates.
-- Replay determinism is tested from a fixture event log.
-- Topic keys, retention, and partition assumptions are documented.
+- Replay determinism is tested from a fixture event log, and asserted on a `core.Chain` digest rather than a terminal garden hash.
+- A run survives a simulated power cut at every tick boundary, in all three crash shapes, losing nothing the log acknowledged as durable.
+- Partition keys, snapshot cadence, and run retention are documented.
 
 ## M3: Failure And Performance Lab
 
@@ -86,4 +89,5 @@ The run engine lands first and carries no transport: run lifecycle, control revi
 - Read-only iOS companion using the versioned API and WebSocket contracts.
 - Multi-garden or spectator mode.
 - Adaptive worker policies and partitioning experiments.
+- Kafka, if the event path ever needs to cross a process boundary. The Event Spine log is one machine, one copy, one writer, and that is the case for reaching for a broker.
 - Shared replay links and comparative run analysis.

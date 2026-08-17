@@ -4,9 +4,9 @@
 
 | Checkpoint | Question | Evidence to collect | Decision |
 | --- | --- | --- | --- |
-| After M0 | Is the event loop fun and understandable without Kafka? | Five-minute local demo and replay test | Keep, simplify, or change the garden rules |
+| After M0 | Is the event loop fun and understandable without a durable log? | Five-minute local demo and replay test | Keep, simplify, or change the garden rules |
 | After M1 | Does the UI make system pressure legible? | Screen recording, browser test, latency strip | Adjust controls and visual feedback |
-| After M2 | Does Kafka add meaningful behavior? | Stop/restart/replay demo and lag measurements | Keep topic design or revise partitioning |
+| After M2 | Does a durable log add meaningful behavior? | Stop/restart/replay demo, crash matrix, and lag measurements | Keep the log seam or reach for a broker |
 | After M3 | Is the performance story credible? | Load report and traces | Tune bottleneck or document limit |
 | After M4 | Is this a compelling showcase? | Fresh-checkout demo and external walkthrough | Publish, extend, or extract mobile client |
 

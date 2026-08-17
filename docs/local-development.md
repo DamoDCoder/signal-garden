@@ -6,7 +6,7 @@
 | --- | --- |
 | M0 | Go only; in-memory adapters and a CLI projection |
 | M1 | Docker Compose, Go services, React, generated gateway, WebSocket endpoint |
-| M2 | Kafka, document store, replay tooling |
+| M2 | Go only; the event log is a library and needs a data directory, plus snapshot storage and replay tooling |
 | M3 | OpenTelemetry collector, Prometheus-compatible metrics, load generator |
 
 ## Expected Commands

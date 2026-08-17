@@ -10,7 +10,7 @@ event_type     rain | growth | pest | control_changed | run_state_changed
 schema_version version of the event payload
 run_id         simulation run
 entity_id      organism or garden target
-partition_key deterministic Kafka key
+partition_key deterministic log key; ordering is guaranteed within a key
 sequence       producer or projection sequence where applicable
 occurred_at    simulation time
 recorded_at    wall-clock ingestion time
@@ -28,19 +28,23 @@ payload        typed event data
 | `control_changed` | Control service | Changes future producer behavior | `run_id + revision` |
 | `run_state_changed` | Control service | Starts, pauses, or finishes a run | `run_id + revision` |
 
-## Kafka Planning Defaults
+## Log Planning Defaults
 
-- Raw topic: `signal-garden.v1.raw-events`.
-- Processed topic: `signal-garden.v1.processed-events`.
+The durable transport is the [Event Spine](https://github.com/DamoDCoder/event-spine) log, one per run — see [0004](decisions/0004-event-spine-replaces-kafka-as-the-event-backbone.md).
+
+- Location: `<data>/runs/<run_id>/`. A run's history is a directory, which is what the replay command reads.
 - Partition key: `run_id` for ordering within a run during the first release.
-- Retention: long enough to replay local demo runs; make the exact duration configurable.
-- Consumer group: `signal-garden-processor-v1`.
+- Durability: `log.Sync`. One `Append` call per tick means one fsync per tick, which is free at a 200ms pace and makes the crash story "nothing acknowledged is lost."
+- Consumer group: `projections`. Reading does not move it; committing does, and only after the projection has folded the records.
+- Retention: whole runs expire; records inside a run do not. Run logs are never compacted ([0007](decisions/0007-never-compact-a-run-log.md)).
+
+The durable record carries the envelope above **minus `recorded_at`**. Wall-clock time is not part of the simulation, and putting it in the payload would make two byte-identical runs produce different records.
 
 These are starting hypotheses, not permanent infrastructure decisions. M3 should measure whether run-level ordering limits useful parallelism and whether organism-level partitioning is worth the added complexity.
 
 ## Replay Rules
 
-- Replaying the same event fixture with the same rules version must produce the same snapshot hash.
-- Wall-clock timestamps must not influence simulation outcomes.
-- Duplicate events must be safe to reprocess or explicitly rejected as already applied.
+- Replaying the same event fixture with the same rules version must produce the same chain digest. A terminal snapshot hash is not sufficient evidence — see [0008](decisions/0008-assert-determinism-on-a-chain-not-a-terminal-hash.md).
+- Wall-clock timestamps must not influence simulation outcomes, and are not written to the log.
+- Delivery is at-least-once. Duplicate events must be safe to reprocess or explicitly rejected as already applied.
 - Rules changes require a versioned replay strategy and a documented incompatibility decision.

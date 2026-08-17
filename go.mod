@@ -16,6 +16,7 @@ require (
 )
 
 require (
+	github.com/DamoDCoder/event-spine v0.2.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect

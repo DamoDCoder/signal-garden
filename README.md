@@ -6,7 +6,9 @@ Signal Garden is a local-first real-time event-processing laboratory disguised a
 
 ## Status
 
-**M0 complete; M1 in progress.** One Go process, in-memory event bus, deterministic simulation, and a live run engine behind a CLI projection. No Kafka, no gRPC, no containers yet — see [docs/roadmap.md](docs/roadmap.md) for what each milestone adds and why.
+**M0 complete; M1 in progress.** One Go process, in-memory event bus, deterministic simulation, a live run engine behind a CLI projection, and a gRPC service with a generated REST gateway. No durable event log, no browser client, and no containers yet — see [docs/roadmap.md](docs/roadmap.md) for what each milestone adds and why.
+
+Durability arrives at M2 as the [Event Spine](https://github.com/DamoDCoder/event-spine) log — an append-only log as an in-process library — rather than Kafka. [Decision 0004](docs/decisions/0004-event-spine-replaces-kafka-as-the-event-backbone.md) says why, and what it costs.
 
 ## Quick Start
 
