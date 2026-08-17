@@ -21,6 +21,9 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 - `eventlog.OpenDir` and `engine.DirectoryLogs`: run history on the real filesystem at `<data>/runs/<run_id>/`. `signalgardend` reads `SIGNAL_GARDEN_DATA_DIR` and `SIGNAL_GARDEN_ON_CORRUPT`; `signalgarden -live -data <dir>` does the same for the terminal client. Both default to keeping history in memory only for the CLI — the daemon defaults to `data`.
 - `engine.CorruptPolicy`, whose zero value refuses. `eventlog.Rewind` implements the `continue` side: it pulls a commit back to the truncation point, repositions the reader, and refuses outright when a snapshot folded records the truncation removed.
 - `engine.ErrRunHasHistory`, mapped to `ALREADY_EXISTS`, and `engine.ErrCorruptLog`, mapped to `DATA_LOSS`. A run ID is taken by history as well as by a live run.
+- `domain.Garden.Digest` and a `core.Chain` folded once per record inside `Sim`, with `Chain`, `ChainSteps`, and `Absorbed` on the run scorecard and the CLI output. Determinism is asserted on the chain now; the snapshot hash stays as the projection's fingerprint on the wire.
+- `sim.Fold`, which replays events into a fresh garden. It is what a restart does and what the replay command will do.
+- A crash matrix over every tick boundary, three crash shapes, and two durability modes. Sync mode must keep every acknowledged record and fold back to the exact garden the run was showing; batch mode may lose records but only from the tail. The matrix asserts it observed real loss, including a crash landing inside a tick, so the invariant is not being checked on whole ticks by accident.
 
 ### Removed
 

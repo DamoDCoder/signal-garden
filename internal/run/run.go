@@ -76,7 +76,30 @@ type Result struct {
 	Published  int
 	Revisions  int
 	FinalCtrls domain.Controls
+
+	// Chain is the determinism digest: every record folded together with the
+	// garden it produced. Replay compares this, not Snapshot — see
+	// docs/decisions/0008.
+	Chain string
+
+	// ChainSteps is how many records the chain folded.
+	ChainSteps int64
+
+	// Absorbed reports that the garden stopped responding to events before
+	// the run ended. An absorbed run's digests agree for reasons that have
+	// nothing to do with determinism, so a determinism check must reject it
+	// rather than count it as a pass.
+	Absorbed bool
 }
+
+// AbsorbedWindow is how many consecutive records may leave the garden unchanged
+// before the run is called absorbed.
+//
+// It is generous on purpose: a live garden can absorb a run of events by chance
+// — every rain landing on a dead organism, say — and calling that absorbed would
+// fail runs that are still evidence. What it must catch is the state that never
+// comes back.
+const AbsorbedWindow = 200
 
 // Execute runs the simulation to completion and returns the scorecard.
 //
@@ -122,6 +145,9 @@ func Execute(cfg Config) (Result, error) {
 		Published:  s.Published(),
 		Revisions:  s.Revision(),
 		FinalCtrls: s.Controls(),
+		Chain:      s.Chain(),
+		ChainSteps: s.ChainSteps(),
+		Absorbed:   s.Absorbed(AbsorbedWindow),
 	}, nil
 }
 

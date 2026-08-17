@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+
+	"github.com/DamoDCoder/event-spine/core"
 )
 
 // Organism bounds. Health and moisture are percentages; stage is a discrete
@@ -114,15 +116,31 @@ func (g *Garden) Stats() Stats {
 	return s
 }
 
-// Hash returns a stable fingerprint of garden state.
+// Digest returns a stable fingerprint of garden state.
 //
-// docs/events.md requires that replaying the same fixture with the same rules
-// version produces the same snapshot hash. This is that hash: the replay tests
-// compare it rather than diffing whole structures.
-func (g *Garden) Hash() string {
+// It is what the determinism chain folds after every event, so it has to be
+// cheap and it has to depend on nothing but the organisms. Iteration is over
+// the slice rather than the index map, because ranging a map here would make
+// the digest depend on Go's hash seed — the one determinism bug an import
+// checker cannot see.
+func (g *Garden) Digest() core.Digest {
 	h := sha256.New()
 	for _, o := range g.organisms {
 		fmt.Fprintf(h, "%s|%d|%d|%d\n", o.ID, o.Moisture, o.Health, o.Stage)
 	}
-	return hex.EncodeToString(h.Sum(nil))
+	var d core.Digest
+	copy(d[:], h.Sum(nil))
+	return d
+}
+
+// Hash returns the digest as hex, which is what the snapshot frame carries and
+// what a client can compare cheaply.
+//
+// It is a fingerprint of where the garden ended up, and on its own that is weak
+// evidence of determinism: a garden whose organisms are all dead folds every
+// history to the same value. The chain in docs/decisions/0008 is what the
+// replay tests compare.
+func (g *Garden) Hash() string {
+	d := g.Digest()
+	return hex.EncodeToString(d[:])
 }

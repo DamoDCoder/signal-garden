@@ -9,8 +9,10 @@
 package sim
 
 import (
+	"errors"
 	"fmt"
 
+	"github.com/DamoDCoder/event-spine/core"
 	spinesim "github.com/DamoDCoder/event-spine/sim"
 
 	"github.com/damodbear/signal-garden/internal/domain"
@@ -75,6 +77,7 @@ type Sim struct {
 	prod   *producer.Producer
 	log    *eventlog.Log
 	proc   *processor.Processor
+	chain  *core.Chain
 
 	tick      int64
 	controls  domain.Controls
@@ -115,6 +118,7 @@ func New(cfg Config) (*Sim, error) {
 		prod:     prod,
 		log:      l,
 		proc:     processor.New(garden),
+		chain:    core.NewChain(),
 		controls: cfg.Controls,
 	}, nil
 }
@@ -188,11 +192,41 @@ func (s *Sim) Step() error {
 	if err != nil {
 		return fmt.Errorf("read at tick %d: %w", s.tick, err)
 	}
-	if err := s.proc.ProcessBatch(unprocessed); err != nil {
+	if err := s.fold(unprocessed); err != nil {
 		return fmt.Errorf("process tick %d: %w", s.tick, err)
 	}
 	s.tick++
 	return nil
+}
+
+// fold applies records to the garden and advances the determinism chain one
+// step per record.
+//
+// The chain is folded here rather than once per tick because a tick is not a
+// unit the ordering guarantee is about: two runs that applied the same events in
+// a different order within one tick would agree at every tick boundary. Folding
+// per record is what makes a reordering visible.
+//
+// Both halves go in. The event alone would miss a projection that applies an
+// event wrongly; the digest alone would miss two different events that happen to
+// land on the same state — which is the absorbing case, and this garden is full
+// of absorbing states. See docs/decisions/0008.
+func (s *Sim) fold(events []event.Event) error {
+	var errs []error
+	for _, e := range events {
+		// Re-encoding the decoded envelope is what the log holds: the
+		// codec's encoding is stable and round-trips, so the chain folds
+		// the same bytes a replay reads back.
+		rec, err := e.ToCore()
+		if err != nil {
+			return fmt.Errorf("encode %s for the chain: %w", e.EventID, err)
+		}
+		if r := s.proc.Process(e); r.Err != nil {
+			errs = append(errs, r.Err)
+		}
+		s.chain.Advance(rec, s.garden.Digest())
+	}
+	return errors.Join(errs...)
 }
 
 // Config returns the fixed configuration of this simulation.
@@ -233,8 +267,48 @@ func (s *Sim) Stats() domain.Stats { return s.garden.Stats() }
 // Organisms returns a copy of the garden's organisms.
 func (s *Sim) Organisms() []domain.Organism { return s.garden.Organisms() }
 
-// Hash returns the stable fingerprint of garden state used by replay tests.
+// Hash returns the fingerprint of where the garden currently is. It is what
+// the snapshot frame carries; determinism is asserted on the chain.
 func (s *Sim) Hash() string { return s.garden.Hash() }
+
+// Chain returns the determinism chain digest: every record folded together with
+// the projection state it produced.
+//
+// This is the value replay compares. Two runs that reached the same garden by
+// different routes agree on Hash and disagree here, which is the whole reason
+// it exists — see docs/decisions/0008.
+func (s *Sim) Chain() string { return s.chain.Digest().String() }
+
+// ChainSteps is how many records the chain has folded.
+func (s *Sim) ChainSteps() int64 { return s.chain.Steps() }
+
+// Absorbed reports whether the garden has stopped responding to events for the
+// last window records.
+//
+// An absorbed run's digest is evidence about the absorbing state rather than
+// about determinism: once every organism is dead, rain adds no moisture and
+// pest removes no health, so every history folds to the same place. A
+// determinism test that cannot fail is not a test, so the gate fails an
+// absorbed run instead of passing it.
+func (s *Sim) Absorbed(window int64) bool { return s.chain.Absorbed(window) }
+
+// Fold replays events into a fresh garden and returns it.
+//
+// This is what a restart does and what the replay command does: the garden is
+// not durable state, it is the fold of a history. Duplicates in that history are
+// dropped by the processor's idempotency keys, so a log holding redeliveries
+// folds to the same garden as one without them.
+func Fold(organisms int, events []event.Event) (*domain.Garden, processor.Stats, error) {
+	garden, err := domain.NewGarden(organisms)
+	if err != nil {
+		return nil, processor.Stats{}, err
+	}
+	proc := processor.New(garden)
+	if err := proc.ProcessBatch(events); err != nil {
+		return nil, proc.Stats(), fmt.Errorf("replay %d events: %w", len(events), err)
+	}
+	return garden, proc.Stats(), nil
+}
 
 // ProcessorStats returns a copy of the processor counters.
 func (s *Sim) ProcessorStats() processor.Stats { return s.proc.Stats() }

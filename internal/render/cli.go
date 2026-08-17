@@ -38,7 +38,12 @@ func Scorecard(w io.Writer, r run.Result) error {
 	eventsSection(&b, r.Published, r.Processor)
 
 	fmt.Fprintf(&b, "\nsnapshot   %s\n", r.Snapshot)
-	b.WriteString("\nSame seed, ticks, and controls reproduce this snapshot exactly.\n")
+	fmt.Fprintf(&b, "chain      %s (%d steps)\n", r.Chain, r.ChainSteps)
+	if r.Absorbed {
+		b.WriteString("\nThe garden stopped responding before the run ended, so this chain is\nevidence about that state rather than about determinism.\n")
+	} else {
+		b.WriteString("\nSame seed, ticks, and controls reproduce this chain exactly. The chain folds\nevery event with the garden it produced; the snapshot alone would agree even\nbetween runs that diverged and then died.\n")
+	}
 
 	_, err := io.WriteString(w, b.String())
 	return err

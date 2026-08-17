@@ -12,7 +12,7 @@ The event spine's `core.Chain` folds the event *and* the resulting projection di
 ## Options Considered
 
 1. **Keep the terminal hash.** No new dependency in the domain package, and the tests already pass.
-2. **Fold a chain per event and assert on its digest.** `domain.Garden` implements `core.Projection` (`Apply`, `Digest`), and determinism tests compare chains.
+2. **Fold a chain per event and assert on its digest.** `domain.Garden` gains a `Digest`, and determinism tests compare chains.
 3. **Compare full event histories.** Maximally strict and unreadable on failure; a diff of thousands of records to find one reordered pair.
 
 ## Decision
@@ -30,6 +30,13 @@ Signal Garden is unusually exposed to this. `Organism.Alive()` is documented as 
 Both halves of the chain are load-bearing. Folding only the events would miss a projection that applies an event incorrectly; folding only the digests would miss two different events that happen to land on the same state, which is the absorbing case again.
 
 `Chain.Absorbed(window)` is why the second half of the decision exists: agreement between two absorbed runs is evidence about the absorbing state, not about determinism, so the determinism gate must fail an absorbed run rather than count it. A determinism test that cannot fail is not a test.
+
+**Reproduced here.** `TestTerminalHashAgreesWhereTheChainDoesNot` runs seeds 42 and 43 under a pest-only mix for 400 ticks. Every organism dies with zero moisture and zero stage either way, so both land on snapshot `81636e1a…` — and their chains differ, because their histories did. The test asserts all three facts, so if the garden ever gains a way to remember its history after death, it fails and says so rather than quietly becoming redundant.
+
+Two implementation notes that the plan for this record got wrong:
+
+- **`Garden` does not implement `core.Projection`.** `Apply(event.Event) Outcome` already exists and means something different from `Apply(core.Event) error`, and one type cannot have both. Only `Chain` is needed, and it needs a digest rather than an interface — so `Garden` grew `Digest`, `Hash` became its hex form, and there is still one hash implementation.
+- **The chain folds per record, not per tick.** A tick is not a unit the ordering guarantee is about: two runs that applied the same events in a different order within one tick would agree at every tick boundary.
 
 ## What Would Revisit This
 
