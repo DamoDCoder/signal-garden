@@ -27,6 +27,14 @@ import (
 	"github.com/damodbear/signal-garden/internal/sim"
 )
 
+// DefaultSnapshotEvery is how many ticks a run puts between snapshots.
+//
+// It is a tradeoff with nothing clever in it: snapshotting more often means a
+// restart folds fewer records, and means more writes. Fifty ticks is ten seconds
+// at the default pace, which is short enough that a restart is not visibly slow
+// and long enough that the writes are not the workload.
+const DefaultSnapshotEvery = 50
+
 // DefaultTickInterval paces a run slowly enough that a person can watch a
 // garden change without the projection stream becoming a firehose.
 const DefaultTickInterval = 200 * time.Millisecond
@@ -135,6 +143,10 @@ type StartRunRequest struct {
 	// DuplicateEvery republishes every Nth event of a tick, so the
 	// idempotency demo is a control rather than a test-only code path.
 	DuplicateEvery int
+
+	// SnapshotEvery overrides the registry's snapshot cadence for this run.
+	// Zero uses the registry default; a negative value is rejected.
+	SnapshotEvery int64
 }
 
 // Validate checks the request before a run is created.
@@ -150,6 +162,9 @@ func (r StartRunRequest) Validate() error {
 	}
 	if r.DuplicateEvery < 0 {
 		return fmt.Errorf("duplicate_every must not be negative, got %d", r.DuplicateEvery)
+	}
+	if r.SnapshotEvery < 0 {
+		return fmt.Errorf("snapshot_every must not be negative, got %d", r.SnapshotEvery)
 	}
 	return r.Controls.Validate()
 }
@@ -266,6 +281,7 @@ type Registry struct {
 	mu       sync.Mutex
 	clock    Clock
 	interval time.Duration
+	snapshot int64
 	openLog  LogOpener
 	corrupt  CorruptPolicy
 	runs     map[string]*liveRun
@@ -293,6 +309,12 @@ func WithLogs(open LogOpener) Option {
 	return func(r *Registry) { r.openLog = open }
 }
 
+// WithSnapshotEvery sets how many ticks runs put between snapshots. Zero turns
+// snapshotting off, which means a restart folds a run's whole history.
+func WithSnapshotEvery(ticks int64) Option {
+	return func(r *Registry) { r.snapshot = ticks }
+}
+
 // WithCorruptPolicy chooses what happens when a run's log opens corrupt.
 func WithCorruptPolicy(p CorruptPolicy) Option {
 	return func(r *Registry) { r.corrupt = p }
@@ -303,6 +325,7 @@ func NewRegistry(opts ...Option) *Registry {
 	reg := &Registry{
 		clock:    SystemClock(),
 		interval: DefaultTickInterval,
+		snapshot: DefaultSnapshotEvery,
 		openLog:  EphemeralLogs(),
 		runs:     make(map[string]*liveRun),
 	}
@@ -319,6 +342,9 @@ func (g *Registry) StartRun(req StartRunRequest) (Run, error) {
 	}
 	if req.TickInterval == 0 {
 		req.TickInterval = g.interval
+	}
+	if req.SnapshotEvery == 0 {
+		req.SnapshotEvery = g.snapshot
 	}
 
 	g.mu.Lock()
@@ -350,6 +376,7 @@ func (g *Registry) StartRun(req StartRunRequest) (Run, error) {
 		Organisms:      req.Organisms,
 		Controls:       req.Controls,
 		DuplicateEvery: req.DuplicateEvery,
+		SnapshotEvery:  req.SnapshotEvery,
 		Log:            runLog,
 	})
 	if err != nil {
@@ -763,6 +790,15 @@ func (r *liveRun) finish() {
 	r.state = StateFinished
 	r.finishedAt = r.clock.Now()
 	r.updatedAt = r.finishedAt
+
+	// A final snapshot, so a finished run replays from where it ended rather
+	// than from the last cadence boundary. A failure here does not un-finish
+	// the run — the records are all still on disk — but it must not be
+	// silent, because it means the next replay is slower than it looks.
+	if err := r.sim.Save(); err != nil && r.failure == nil {
+		r.failure = err
+	}
+
 	r.stopTicker()
 	r.publish()
 	r.closeSubs()

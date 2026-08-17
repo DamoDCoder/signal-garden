@@ -6,6 +6,12 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.0] — 2026-08-17
+
+M2's event backbone: the in-memory bus is gone, run history is durable, and a run can be rebuilt from its log in another process.
+
 ### Added
 
 - `internal/event/codec.go`: `Event.ToCore` and `FromCore`, mapping the envelope onto the durable log record. PartitionKey, OccurredAt, and SchemaVersion become the record header; the rest becomes a JSON payload. `recorded_at` is not written at all, so two runs of the same seed produce byte-identical records — asserted directly rather than assumed.
@@ -23,11 +29,18 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 - `engine.ErrRunHasHistory`, mapped to `ALREADY_EXISTS`, and `engine.ErrCorruptLog`, mapped to `DATA_LOSS`. A run ID is taken by history as well as by a live run.
 - `domain.Garden.Digest` and a `core.Chain` folded once per record inside `Sim`, with `Chain`, `ChainSteps`, and `Absorbed` on the run scorecard and the CLI output. Determinism is asserted on the chain now; the snapshot hash stays as the projection's fingerprint on the wire.
 - `sim.Fold`, which replays events into a fresh garden. It is what a restart does and what the replay command will do.
+- Snapshots and commits. `Sim.Save` writes the projection state into the log and then commits the group to the same offset — snapshot first, because committing first would leave a window where a crash resumes past records with no state to resume from. Cadence is every 50 ticks and once more when a run finishes.
+- `sim.Rebuild` and `signalgarden -replay -run <id> -data <dir>`: rebuild a run's garden from its log, in a different process, reaching the snapshot hash the live run ended on. Deleting every snapshot in the directory changes nothing but the time it takes.
 - A crash matrix over every tick boundary, three crash shapes, and two durability modes. Sync mode must keep every acknowledged record and fold back to the exact garden the run was showing; batch mode may lose records but only from the tail. The matrix asserts it observed real loss, including a crash landing inside a tick, so the invariant is not being checked on whole ticks by accident.
 
 ### Removed
 
 - `internal/bus`. The in-memory queue was the M0 seam and the log now occupies it. Tests reach a real log through the spine's in-memory filesystem, so there is one transport and the path under test is the path that ships.
+
+### Not yet
+
+- Resuming a **live** run after a restart. A garden is the fold of a history and restores from one; a producer is a position in a seeded `math/rand` stream, and there is no way to write that position down. Rebuilding a run's projection works and is what `-replay` does; making a restarted daemon carry on producing where it left off needs the producer to become replayable or seekable, which is its own slice.
+- Reconnect catch-up from a client's last sequence, and the log's offsets on the wire. The WebSocket stream they belong to is still outstanding from M1.
 
 ## [0.3.0] — 2026-08-17
 

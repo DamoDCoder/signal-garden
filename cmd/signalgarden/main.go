@@ -41,6 +41,7 @@ func realMain() error {
 		live      = flag.Bool("live", false, "run on a clock and stream frames, accepting typed control changes")
 		interval  = flag.Duration("interval", engine.DefaultTickInterval, "wall-clock pace of a live run")
 		dataDir   = flag.String("data", "", "keep a live run's event history under this directory; empty keeps it in memory")
+		replay    = flag.Bool("replay", false, "rebuild a run's garden from its log under -data and print it")
 	)
 	flag.Parse()
 
@@ -49,6 +50,13 @@ func realMain() error {
 		RainWeight:    *rain,
 		GrowthWeight:  *growth,
 		PestWeight:    *pest,
+	}
+
+	if *replay {
+		if *dataDir == "" {
+			return fmt.Errorf("-replay needs -data to say where the run's history is")
+		}
+		return runReplay(os.Stdout, *dataDir, *runID)
 	}
 
 	if *live {

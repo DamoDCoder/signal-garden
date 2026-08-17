@@ -187,6 +187,53 @@ func (l *Log) Replay() ([]event.Event, error) {
 	}
 }
 
+// Save writes a snapshot of the projection and then commits the group to the
+// same offset.
+//
+// The order is the whole point. The snapshot is the state built from every
+// record below the cursor; committing says those records need never be
+// delivered again. Committing first would leave a window where a crash resumes
+// past records with no state to resume from — a projection that can neither
+// replay nor restore. This way round, a crash between the two costs a redelivery
+// of records the projection has already folded, which is what idempotency is
+// for.
+func (l *Log) Save(state []byte) error {
+	at := l.reader.Offset()
+	if err := l.log.Snapshot(at, state); err != nil {
+		return fmt.Errorf("write snapshot at %d: %w", at, err)
+	}
+	return l.Commit()
+}
+
+// Restore returns the newest snapshot's state and every record after it.
+//
+// The state is nil when no snapshot exists, in which case the records are the
+// whole log — a projection with no shortcut rebuilds from the beginning, which
+// is correct if slow. The offset a snapshot names is the first record it did
+// *not* fold, so the records returned are exactly the ones still to apply.
+func (l *Log) Restore() ([]byte, int64, []event.Event, error) {
+	snapshot, reader, err := l.log.Restore()
+	if err != nil && !errors.Is(err, spinelog.ErrNoSnapshot) {
+		return nil, 0, nil, fmt.Errorf("restore: %w", err)
+	}
+
+	var tail []event.Event
+	for {
+		rec, err := reader.Next()
+		if errors.Is(err, spinelog.ErrEndOfLog) {
+			return snapshot.State, int64(snapshot.Offset), tail, nil
+		}
+		if err != nil {
+			return nil, 0, nil, fmt.Errorf("restore at offset %d: %w", reader.Offset(), err)
+		}
+		e, err := event.FromCore(rec.Event)
+		if err != nil {
+			return nil, 0, nil, fmt.Errorf("decode record at offset %d: %w", rec.Offset, err)
+		}
+		tail = append(tail, e)
+	}
+}
+
 // ErrStrandedSnapshot means a snapshot folded records that recovery then
 // truncated, so the state it holds describes a history the log no longer has.
 var ErrStrandedSnapshot = errors.New("snapshot is newer than the recovered log")

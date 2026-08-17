@@ -6,7 +6,7 @@ Signal Garden is a local-first real-time event-processing laboratory disguised a
 
 ## Status
 
-**v0.3.0 — M0 complete; M1 in progress; M2 started.** One Go process, in-memory event bus, deterministic simulation, a live run engine behind a CLI projection, and a gRPC service with a generated REST gateway. No durable event log, no browser client, and no containers yet — see [docs/roadmap.md](docs/roadmap.md) for what each milestone adds and why.
+**v0.4.0 — M0 complete; M1 in progress; M2 event backbone landed.** One Go process, an append-only event log, deterministic simulation, a live run engine behind a CLI projection, and a gRPC service with a generated REST gateway. Run history is durable and replayable. No browser client and no containers yet — see [docs/roadmap.md](docs/roadmap.md) for what each milestone adds and why.
 
 Durability arrives at M2 as the [Event Spine](https://github.com/DamoDCoder/event-spine) log — an append-only log as an in-process library — rather than Kafka. [Decision 0004](docs/decisions/0004-event-spine-replaces-kafka-as-the-event-backbone.md) says why, and what it costs.
 
@@ -71,8 +71,11 @@ A run ID is taken by history as well as by a live run, so restarting the daemon 
 The batch and live CLI keep history in memory unless told otherwise, so a demo leaves nothing behind:
 
 ```sh
-go run ./cmd/signalgarden -live -data ./data   # same code path, on disk
+go run ./cmd/signalgarden -live -run demo -data ./data   # same code path, on disk
+go run ./cmd/signalgarden -replay -run demo -data ./data # rebuild that garden from its log
 ```
+
+Replay reaches the same snapshot hash the live run ended on, in a different process, from the records alone. A snapshot is written every 50 ticks and once more at the end, purely so a restart folds fewer records — delete every `snapshot-*.state` in the run's directory and replay prints the same garden, more slowly.
 
 ## Documentation
 

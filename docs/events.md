@@ -37,6 +37,10 @@ The durable transport is the [Event Spine](https://github.com/DamoDCoder/event-s
 - Durability: `log.Sync`. One `Append` call per tick means one fsync per tick, which is free at a 200ms pace and makes the crash story "nothing acknowledged is lost."
 - Consumer group: `projections`. Reading does not move it; committing does, and only after the projection has folded the records.
 - Retention: whole runs expire; records inside a run do not. Run logs are never compacted ([0007](decisions/0007-never-compact-a-run-log.md)).
+- Snapshot cadence: every 50 ticks, and once more when a run finishes. Ten seconds of play at the default pace — short enough that a restart is not visibly slow, long enough that the writes are not the workload.
+- Committing: only ever immediately after a snapshot, and to the same offset. A commit promises those records never need delivering again, which is true only once the state built from them is durable.
+
+A snapshot is a shortcut past records already folded, never a second source of truth. Deleting every snapshot in a run's directory costs replay time and changes nothing else, which is the property that makes it safe to keep.
 
 The durable record carries the envelope above **minus `recorded_at`**. Wall-clock time is not part of the simulation, and putting it in the payload would make two byte-identical runs produce different records.
 

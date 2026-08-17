@@ -58,6 +58,31 @@ func NewGarden(n int) (*Garden, error) {
 	return g, nil
 }
 
+// Restore rebuilds a garden from organisms read out of a snapshot.
+//
+// It is the inverse of Organisms, and it exists because a garden is the fold of
+// a history: a snapshot is a shortcut past the records already folded, not a
+// second source of truth. The IDs are checked against the positions they would
+// have had, so a snapshot written by a different build cannot quietly become a
+// garden whose organisms are in the wrong order.
+func Restore(organisms []Organism) (*Garden, error) {
+	if len(organisms) == 0 {
+		return nil, fmt.Errorf("garden needs at least 1 organism, got 0")
+	}
+	g := &Garden{
+		organisms: make([]Organism, len(organisms)),
+		index:     make(map[string]int, len(organisms)),
+	}
+	for i, o := range organisms {
+		if want := OrganismID(i); o.ID != want {
+			return nil, fmt.Errorf("organism %d has id %q, want %q", i, o.ID, want)
+		}
+		g.organisms[i] = o
+		g.index[o.ID] = i
+	}
+	return g, nil
+}
+
 // OrganismID returns the stable ID for the organism at position i.
 func OrganismID(i int) string {
 	return fmt.Sprintf("org-%03d", i)

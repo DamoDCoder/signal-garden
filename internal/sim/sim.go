@@ -34,6 +34,11 @@ type Config struct {
 	// idempotent processing. Zero disables duplication.
 	DuplicateEvery int
 
+	// SnapshotEvery writes a snapshot and commits the projections group
+	// every N ticks. Zero never snapshots, which means a restart folds the
+	// run's whole history — correct, and slower the longer the run.
+	SnapshotEvery int64
+
 	// Log is the run's durable event history. A nil Log gets one backed by
 	// an in-memory filesystem, which is what the batch runner and the tests
 	// want: a real log, real records, and nothing left on disk afterwards.
@@ -53,6 +58,9 @@ func (c Config) Validate() error {
 	}
 	if c.DuplicateEvery < 0 {
 		return fmt.Errorf("duplicate_every must not be negative, got %d", c.DuplicateEvery)
+	}
+	if c.SnapshotEvery < 0 {
+		return fmt.Errorf("snapshot_every must not be negative, got %d", c.SnapshotEvery)
 	}
 	if err := c.Controls.Validate(); err != nil {
 		return fmt.Errorf("initial controls: %w", err)
@@ -158,10 +166,10 @@ func (s *Sim) SetControls(c domain.Controls) (int, error) {
 // many events it produced — and appending them one at a time would pay that
 // cost per event while making exactly the same records durable.
 //
-// Reading is separate from committing, and this method never commits. The
-// garden is in memory until a snapshot is written, so a commit here would let a
-// restart resume past records it could no longer replay. See the eventlog
-// package comment.
+// Reading is separate from committing. The only thing that commits is Save,
+// which writes a snapshot first: a commit promises those records never need
+// delivering again, which is true only once the state built from them is on
+// disk. A tick with no snapshot due therefore leaves the group where it was.
 func (s *Sim) Step() error {
 	batch := make([]event.Event, 0, len(s.pending))
 	for _, p := range s.pending {
@@ -196,6 +204,15 @@ func (s *Sim) Step() error {
 		return fmt.Errorf("process tick %d: %w", s.tick, err)
 	}
 	s.tick++
+
+	// Snapshotting after the tick counter moves means the snapshot records
+	// the tick it is actually past, and the cursor it is written at is the
+	// first record of the next tick.
+	if s.cfg.SnapshotEvery > 0 && s.tick%s.cfg.SnapshotEvery == 0 {
+		if err := s.Save(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
