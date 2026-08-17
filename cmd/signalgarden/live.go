@@ -13,6 +13,7 @@ import (
 
 	"github.com/damodbear/signal-garden/internal/domain"
 	"github.com/damodbear/signal-garden/internal/engine"
+	"github.com/damodbear/signal-garden/internal/eventlog"
 	"github.com/damodbear/signal-garden/internal/render"
 )
 
@@ -25,6 +26,11 @@ type liveConfig struct {
 	Controls       domain.Controls
 	TickInterval   time.Duration
 	DuplicateEvery int
+
+	// DataDir keeps the run's event history on disk under <DataDir>/runs.
+	// Empty keeps it in memory, which is what a demo wants: the same code
+	// path, nothing left behind.
+	DataDir string
 }
 
 // runLive drives a run through the engine and prints frames as they arrive.
@@ -34,7 +40,13 @@ type liveConfig struct {
 // have a garden. Both talk to the same engine methods, so the browser client
 // replaces this file rather than reaching past it.
 func runLive(cfg liveConfig) error {
-	reg := engine.NewRegistry(engine.WithTickInterval(cfg.TickInterval))
+	opts := []engine.Option{engine.WithTickInterval(cfg.TickInterval)}
+	if cfg.DataDir != "" {
+		opts = append(opts, engine.WithLogs(engine.DirectoryLogs(cfg.DataDir)))
+		fmt.Fprintf(os.Stderr, "run history under %s\n", eventlog.RunDir(cfg.DataDir, cfg.RunID))
+	}
+
+	reg := engine.NewRegistry(opts...)
 	defer reg.Close()
 
 	run, err := reg.StartRun(engine.StartRunRequest{

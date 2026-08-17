@@ -25,7 +25,9 @@ The answer only matters where a log is reopened: resuming runs after a daemon re
 
 ## Decision
 
-Option 2. `signalgardend --on-corrupt` takes `refuse` (default) or `continue`. Under `refuse`, a corrupt recovery on any run log aborts startup with the run ID and the byte count in the error. Under `continue`, the daemon starts, and the corruption is recorded in `Run.Failure` and reflected in `/readyz`.
+Option 2. `SIGNAL_GARDEN_ON_CORRUPT` takes `refuse` (the default) or `continue`; an unrecognised value is an error rather than a silent fallback, because a typo that selected the permissive branch would be the worst way to learn how it is spelled. It is an environment variable rather than a flag to match how the rest of the daemon is configured — Compose passes environment, and there is nothing here a container would set differently.
+
+Under `refuse`, a corrupt recovery fails the operation that opened the log, naming the run and the discarded byte count. Under `continue`, the run proceeds, `eventlog.Rewind` reconciles the positions, and the damage is recorded in `Run.LogRecovery` — a field of its own rather than `Failure`, because the run did not fail and calling it failed would be a lie the client acts on.
 
 ## Evidence
 
@@ -39,6 +41,10 @@ So `continue` must, before serving anything:
 - discard every snapshot at or after `recovery.Next`.
 
 That is the whole of the mode. Without those two steps, `continue` is not "carry on with less data" — it is "resume from an offset that now means something else," which is worse than refusing and harder to notice.
+
+Implementing it found a third case the reasoning above missed. A commit is synced *whatever the log's durability mode says*, so a commit can outlive the very records it committed. Reopening then asks the group for a reader at an offset the log no longer holds, and the open fails outright — before any policy gets a chance to run. The log now positions such a reader at the beginning instead, which is the only offset that cannot silently skip a record, and leaves `Rewind` to rewrite the commit. One power cut in `os` mode reaches this; it is not an exotic state.
+
+A stranded **snapshot** is refused under both policies rather than discarded. Its state was folded from records that no longer exist and there is no way to unfold them, so the choices are to delete a projection's only durable state or to stop, and the second is not a decision to make silently on an operator's behalf.
 
 Option 3 was rejected because it makes that subtle failure the default path. Option 1 was rejected because refusing to start is the right default but a bad only-option: an operator who has decided the loss is acceptable should be able to say so once, visibly, rather than by editing files under the daemon.
 

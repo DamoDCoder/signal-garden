@@ -40,6 +40,7 @@ func realMain() error {
 		duplicate = flag.Int("duplicate-every", 0, "republish every Nth event to exercise idempotency (0 disables)")
 		live      = flag.Bool("live", false, "run on a clock and stream frames, accepting typed control changes")
 		interval  = flag.Duration("interval", engine.DefaultTickInterval, "wall-clock pace of a live run")
+		dataDir   = flag.String("data", "", "keep a live run's event history under this directory; empty keeps it in memory")
 	)
 	flag.Parse()
 
@@ -61,6 +62,7 @@ func realMain() error {
 			Controls:       controls,
 			TickInterval:   *interval,
 			DuplicateEvery: *duplicate,
+			DataDir:        *dataDir,
 		})
 	}
 

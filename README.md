@@ -57,6 +57,23 @@ curl localhost:8080/v1/runs/run-0001/telemetry
 
 `GET /healthz` and `GET /readyz` are the liveness and readiness checks. Regenerate the contract with `make proto`, which needs protoc; building and testing do not.
 
+### Run History
+
+The daemon keeps each run's events in an append-only log under `data/runs/<run_id>/`, one directory per run:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `SIGNAL_GARDEN_DATA_DIR` | `data` | Where run histories live |
+| `SIGNAL_GARDEN_ON_CORRUPT` | `refuse` | `refuse` or `continue` when a log opens with bytes the disk got wrong |
+
+A run ID is taken by history as well as by a live run, so restarting the daemon and starting a run picks the next free ID rather than appending a second run's events into the first one's log. Asking for a used ID explicitly returns `409`.
+
+The batch and live CLI keep history in memory unless told otherwise, so a demo leaves nothing behind:
+
+```sh
+go run ./cmd/signalgarden -live -data ./data   # same code path, on disk
+```
+
 ## Documentation
 
 - [Roadmap](docs/roadmap.md): milestones, exit criteria, and what is deliberately deferred.

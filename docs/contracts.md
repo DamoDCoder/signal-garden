@@ -29,10 +29,13 @@ Errors map to status codes rather than message text, because that mapping is wha
 | Condition | gRPC code | REST |
 | --- | --- | --- |
 | No such run | `NOT_FOUND` | 404 |
-| Run ID already in use | `ALREADY_EXISTS` | 409 |
+| Run ID already in use, live or as history on disk | `ALREADY_EXISTS` | 409 |
 | Command against a finished run | `FAILED_PRECONDITION` | 400 |
 | Rejected controls or start request | `INVALID_ARGUMENT` | 400 |
+| Run log opened corrupt under the refuse policy | `DATA_LOSS` | 500 |
 | Registry shutting down | `UNAVAILABLE` | 503 |
+
+A run ID is taken by history as well as by a live run: a finished run leaves a directory behind, and starting a new run into it would interleave two histories in one log. Omit `run_id` and the server picks one that is free.
 
 ## Generated REST Surface
 

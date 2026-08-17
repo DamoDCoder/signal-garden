@@ -26,9 +26,11 @@ package eventlog
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/DamoDCoder/event-spine/core"
 	spinelog "github.com/DamoDCoder/event-spine/log"
+	spineruntime "github.com/DamoDCoder/event-spine/runtime"
 
 	"github.com/damodbear/signal-garden/internal/event"
 )
@@ -64,6 +66,23 @@ func Open(fs core.FS) (*Log, Recovery, error) {
 	return OpenWith(fs, spinelog.Config{Durability: spinelog.Sync})
 }
 
+// RunDir is where a run's log lives under a data root. One directory per run,
+// which is also the unit the replay command reads and the unit retention
+// expires.
+func RunDir(root, runID string) string {
+	return filepath.Join(root, "runs", runID)
+}
+
+// OpenDir opens a run's log on the real filesystem, creating its directory if
+// it is absent.
+func OpenDir(root, runID string) (*Log, Recovery, error) {
+	fs, err := spineruntime.NewFS(RunDir(root, runID))
+	if err != nil {
+		return nil, Recovery{}, fmt.Errorf("open run directory: %w", err)
+	}
+	return Open(fs)
+}
+
 // OpenWith opens a log with an explicit spine configuration. Crash tests use it
 // to reach the other durability modes; production goes through Open.
 func OpenWith(fs core.FS, cfg spinelog.Config) (*Log, Recovery, error) {
@@ -77,13 +96,13 @@ func OpenWith(fs core.FS, cfg spinelog.Config) (*Log, Recovery, error) {
 		_ = l.Close()
 		return nil, recovery, fmt.Errorf("open group %s: %w", GroupName, err)
 	}
-	reader, err := group.Reader()
-	if err != nil {
-		_ = l.Close()
-		return nil, recovery, fmt.Errorf("position group %s: %w", GroupName, err)
-	}
 
-	return &Log{log: l, group: group, reader: reader}, recovery, nil
+	wrapped := &Log{log: l, group: group}
+	if err := wrapped.reposition(); err != nil {
+		_ = l.Close()
+		return nil, recovery, err
+	}
+	return wrapped, recovery, nil
 }
 
 // Append writes events in the order given.
@@ -166,6 +185,85 @@ func (l *Log) Replay() ([]event.Event, error) {
 		}
 		out = append(out, e)
 	}
+}
+
+// ErrStrandedSnapshot means a snapshot folded records that recovery then
+// truncated, so the state it holds describes a history the log no longer has.
+var ErrStrandedSnapshot = errors.New("snapshot is newer than the recovered log")
+
+// Rewind reconciles the group and the snapshots with a truncation.
+//
+// Compaction preserves offsets, so a committed offset keeps meaning the same
+// record. Truncation does not: the tail moves back, and later appends are
+// assigned offsets that different records used to hold. A commit or a snapshot
+// taken before the truncation therefore names a record that is either gone or
+// about to be something else, and resuming from one silently folds the wrong
+// history. Systems that solve this use leader epochs; the spine does not, so
+// the positions have to be pulled back by hand.
+//
+// A stranded snapshot is refused rather than repaired. Its state was built from
+// records that no longer exist and there is no way to unfold them, so the only
+// honest options are to delete it deliberately or to stop — and deleting a
+// projection's only durable state is not a call this function should make.
+//
+// See docs/decisions/0006.
+func (l *Log) Rewind(rec Recovery) error {
+	if rec.Discarded == 0 {
+		return nil
+	}
+
+	snapshot, err := l.log.LatestSnapshot()
+	switch {
+	case err == nil && snapshot.Offset > rec.Next:
+		return fmt.Errorf("%w: it folded records up to %d, the log now ends at %d",
+			ErrStrandedSnapshot, snapshot.Offset, rec.Next)
+	case err != nil && !errors.Is(err, spinelog.ErrNoSnapshot):
+		return fmt.Errorf("read the latest snapshot: %w", err)
+	}
+
+	committed, err := l.Committed()
+	if err != nil {
+		return err
+	}
+	if committed <= int64(rec.Next) {
+		return nil
+	}
+	if err := l.group.Commit(rec.Next); err != nil {
+		return fmt.Errorf("rewind %s from %d to %d: %w", GroupName, committed, rec.Next, err)
+	}
+	return l.reposition()
+}
+
+// reposition points the reader at where the group resumes.
+//
+// A commit can name an offset the log no longer holds: a commit is synced
+// whatever the log's durability mode says, so it can outlive the very records
+// it committed when recovery truncates past them. There is no valid resume
+// point in that case, and the only position that cannot silently skip a record
+// is the beginning. Rewind is what then rewrites the commit; resuming from the
+// start in the meantime redelivers, which the projection is required to
+// tolerate anyway.
+func (l *Log) reposition() error {
+	committed, err := l.Committed()
+	if err != nil {
+		return err
+	}
+
+	if committed > l.Next() {
+		reader, err := l.log.Reader(l.log.First())
+		if err != nil {
+			return fmt.Errorf("reposition group %s to the start: %w", GroupName, err)
+		}
+		l.reader = reader
+		return nil
+	}
+
+	reader, err := l.group.Reader()
+	if err != nil {
+		return fmt.Errorf("reposition group %s: %w", GroupName, err)
+	}
+	l.reader = reader
+	return nil
 }
 
 // Commit records that the projection has durably folded everything below the

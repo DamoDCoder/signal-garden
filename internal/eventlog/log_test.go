@@ -1,6 +1,7 @@
 package eventlog
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -315,5 +316,184 @@ func TestAppendNothingIsANoOp(t *testing.T) {
 	}
 	if got := l.Next(); got != 0 {
 		t.Errorf("Next() = %d after an empty append, want 0", got)
+	}
+}
+
+// crashAfterCommit builds the state Rewind exists for: a group committed at an
+// offset that recovery then truncated past.
+//
+// It is reachable because a commit is synced whatever the log's durability mode
+// says, so the commit can outlive the records it committed. Nothing about that
+// is exotic — it is one power cut in os mode.
+func crashAfterCommit(t *testing.T) (*spinesim.FS, int) {
+	t.Helper()
+	fs := spinesim.NewFS()
+
+	l, _, err := OpenWith(fs, spinelog.Config{Durability: spinelog.OS})
+	if err != nil {
+		t.Fatalf("OpenWith: %v", err)
+	}
+	if err := fs.Sync(); err != nil {
+		t.Fatalf("fs.Sync: %v", err)
+	}
+
+	const records = 6
+	for i := range records {
+		if err := l.Append(rain(fmt.Sprintf("evt-%d", i), int64(i), int64(i))); err != nil {
+			t.Fatalf("Append: %v", err)
+		}
+	}
+	if _, err := l.Unprocessed(); err != nil {
+		t.Fatalf("Unprocessed: %v", err)
+	}
+	if err := l.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	fs.CrashExtend()
+	_ = l.Close()
+	return fs, records
+}
+
+func TestReopenSurvivesACommitBeyondTheLog(t *testing.T) {
+	fs, records := crashAfterCommit(t)
+
+	l, recovery, err := Open(fs)
+	if err != nil {
+		t.Fatalf("Open after a crash past the commit: %v", err)
+	}
+	defer l.Close()
+
+	if recovery.Corrupt == nil {
+		t.Fatal("the crash did not produce corruption; this test is not exercising what it claims")
+	}
+	committed, err := l.Committed()
+	if err != nil {
+		t.Fatalf("Committed: %v", err)
+	}
+	if committed != int64(records) {
+		t.Fatalf("committed = %d, want the pre-crash %d", committed, records)
+	}
+	if committed <= l.Next() {
+		t.Fatalf("committed %d is not beyond the log's %d; the setup did not truncate", committed, l.Next())
+	}
+
+	// Opening did not fail, and the cursor is somewhere the log holds.
+	if l.Read() > l.Next() {
+		t.Errorf("cursor at %d is past the log's %d", l.Read(), l.Next())
+	}
+}
+
+func TestRewindPullsTheCommitBackToTheTruncation(t *testing.T) {
+	fs, _ := crashAfterCommit(t)
+
+	l, recovery, err := Open(fs)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer l.Close()
+
+	if err := l.Rewind(recovery); err != nil {
+		t.Fatalf("Rewind: %v", err)
+	}
+
+	committed, err := l.Committed()
+	if err != nil {
+		t.Fatalf("Committed: %v", err)
+	}
+	if committed != int64(recovery.Next) {
+		t.Errorf("committed = %d after a rewind, want the truncation point %d", committed, recovery.Next)
+	}
+	if l.Read() != committed {
+		t.Errorf("cursor at %d, want the rewound commit %d", l.Read(), committed)
+	}
+
+	// The rewind has to survive a restart, or the next open resumes from
+	// the stale commit again.
+	if err := l.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	again, _, err := Open(fs)
+	if err != nil {
+		t.Fatalf("reopen after a rewind: %v", err)
+	}
+	defer again.Close()
+	if got, _ := again.Committed(); got != committed {
+		t.Errorf("committed = %d after a restart, want the rewound %d", got, committed)
+	}
+}
+
+// A clean open has nothing to reconcile, and Rewind must not invent work.
+func TestRewindIsANoOpWithoutDiscardedBytes(t *testing.T) {
+	fs := spinesim.NewFS()
+	l := open(t, fs)
+	defer l.Close()
+
+	if err := l.Append(rain("evt-1", 0, 1)); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	if _, err := l.Unprocessed(); err != nil {
+		t.Fatalf("Unprocessed: %v", err)
+	}
+	if err := l.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	if err := l.Rewind(Recovery{}); err != nil {
+		t.Fatalf("Rewind on a clean recovery: %v", err)
+	}
+	if got, _ := l.Committed(); got != 1 {
+		t.Errorf("committed = %d, want the commit left alone at 1", got)
+	}
+}
+
+// A snapshot built from records that no longer exist cannot be repaired, and
+// deleting a projection's only durable state is not this function's call.
+func TestRewindRefusesAStrandedSnapshot(t *testing.T) {
+	fs := spinesim.NewFS()
+
+	// Three records made durable, so the log survives the crash holding
+	// them.
+	durable := open(t, fs)
+	if err := durable.Append(rain("evt-0", 0, 0), rain("evt-1", 1, 1), rain("evt-2", 2, 2)); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	if err := fs.Sync(); err != nil {
+		t.Fatalf("fs.Sync: %v", err)
+	}
+	if err := durable.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Two more without syncing, then a snapshot that folds all five. The
+	// snapshot is made durable on its own; the records behind it are not.
+	loose, _, err := OpenWith(fs, spinelog.Config{Durability: spinelog.OS})
+	if err != nil {
+		t.Fatalf("OpenWith: %v", err)
+	}
+	if err := loose.Append(rain("evt-3", 3, 3), rain("evt-4", 4, 4)); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	if err := loose.log.Snapshot(5, []byte("garden folded to 5")); err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	fs.CrashExtend()
+	_ = loose.Close()
+
+	l, recovery, err := Open(fs)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer l.Close()
+
+	if recovery.Corrupt == nil {
+		t.Fatal("the crash did not truncate; this test is not exercising what it claims")
+	}
+	if recovery.Next >= 5 {
+		t.Fatalf("the log recovered to %d, so the snapshot at 5 is not stranded", recovery.Next)
+	}
+
+	if err := l.Rewind(recovery); !errors.Is(err, ErrStrandedSnapshot) {
+		t.Fatalf("Rewind error = %v, want ErrStrandedSnapshot", err)
 	}
 }

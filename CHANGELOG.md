@@ -15,6 +15,12 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 - `internal/sim` appends a whole tick in one call and folds what the log hands back, instead of publishing to an in-memory queue and draining it. A tick costs one fsync regardless of how many events it produced. The seed-42 scorecard is byte-identical to the previous implementation's.
 - `Sim` owns a log and must be `Close`d. `run.Execute` closes it on return; a live run closes it when its goroutine exits, which is after finishing rather than at it, because a finished run still answers telemetry that reads the log's offsets.
+- Generated run IDs skip an ID whose log already holds records. The counter restarts at zero in a fresh process, so without this a restarted daemon proposes `run-0001` while last week's `run-0001` is still a directory. An explicitly requested ID is refused instead of renamed.
+- Reopening a log whose commit points past the recovered tail no longer fails. A commit is synced whatever the durability mode says, so it can outlive the records it committed; the reader now starts at the beginning, which is the only position that cannot skip a record, and `Rewind` rewrites the commit.
+
+- `eventlog.OpenDir` and `engine.DirectoryLogs`: run history on the real filesystem at `<data>/runs/<run_id>/`. `signalgardend` reads `SIGNAL_GARDEN_DATA_DIR` and `SIGNAL_GARDEN_ON_CORRUPT`; `signalgarden -live -data <dir>` does the same for the terminal client. Both default to keeping history in memory only for the CLI — the daemon defaults to `data`.
+- `engine.CorruptPolicy`, whose zero value refuses. `eventlog.Rewind` implements the `continue` side: it pulls a commit back to the truncation point, repositions the reader, and refuses outright when a snapshot folded records the truncation removed.
+- `engine.ErrRunHasHistory`, mapped to `ALREADY_EXISTS`, and `engine.ErrCorruptLog`, mapped to `DATA_LOSS`. A run ID is taken by history as well as by a live run.
 
 ### Removed
 

@@ -19,7 +19,10 @@ import (
 	"sync"
 	"time"
 
+	spinesim "github.com/DamoDCoder/event-spine/sim"
+
 	"github.com/damodbear/signal-garden/internal/domain"
+	"github.com/damodbear/signal-garden/internal/eventlog"
 	"github.com/damodbear/signal-garden/internal/processor"
 	"github.com/damodbear/signal-garden/internal/sim"
 )
@@ -51,7 +54,66 @@ var (
 	ErrRunFinished  = errors.New("run is finished")
 	ErrRunClosed    = errors.New("run is closed")
 	ErrRegistryDown = errors.New("registry is closed")
+
+	// ErrRunHasHistory means a run was started against a log that already
+	// holds records. Starting a fresh run into an existing history would
+	// interleave two runs in one log, and the second one's replay would
+	// reproduce neither.
+	ErrRunHasHistory = errors.New("run log already holds records")
+
+	// ErrCorruptLog means opening a run's log found bytes that were present
+	// and wrong. Whether that stops the run is a policy — see
+	// docs/decisions/0006.
+	ErrCorruptLog = errors.New("run log is corrupt")
 )
+
+// CorruptPolicy decides what a corrupt log means.
+//
+// The zero value refuses, which is the safe direction: a projection built from
+// a log the disk got wrong is one nobody can describe, and the contract has no
+// field for "this garden may be wrong."
+type CorruptPolicy int
+
+const (
+	// RefuseCorrupt fails rather than serving a run whose history the disk
+	// returned incorrectly.
+	RefuseCorrupt CorruptPolicy = iota
+
+	// ContinueCorrupt starts anyway, records the damage on the run, and
+	// pulls any commit back to the truncation point.
+	ContinueCorrupt
+)
+
+func (p CorruptPolicy) String() string {
+	if p == ContinueCorrupt {
+		return "continue"
+	}
+	return "refuse"
+}
+
+// LogOpener creates the log for a run.
+//
+// It is injected so the engine never learns whether a run's history is on a
+// disk or in memory: the daemon supplies a directory-backed opener, and tests
+// and the batch runner get an in-memory one that leaves nothing behind.
+type LogOpener func(runID string) (*eventlog.Log, eventlog.Recovery, error)
+
+// EphemeralLogs returns an opener whose logs live in memory and vanish with the
+// process. It is the default, so a Registry created without a data directory
+// behaves exactly as it did before durability existed.
+func EphemeralLogs() LogOpener {
+	return func(string) (*eventlog.Log, eventlog.Recovery, error) {
+		return eventlog.Open(spinesim.NewFS())
+	}
+}
+
+// DirectoryLogs returns an opener rooted at a data directory, one directory per
+// run.
+func DirectoryLogs(root string) LogOpener {
+	return func(runID string) (*eventlog.Log, eventlog.Recovery, error) {
+		return eventlog.OpenDir(root, runID)
+	}
+}
 
 // StartRunRequest describes a run to start.
 type StartRunRequest struct {
@@ -111,6 +173,12 @@ type Run struct {
 	// Failure records why a run finished early. It is empty for runs that
 	// finished normally.
 	Failure string `json:"failure,omitempty"`
+
+	// LogRecovery records damage found when the run's log was opened, for a
+	// run allowed to start anyway under ContinueCorrupt. It is empty in the
+	// normal case, and it is the only place a caller can learn that this
+	// garden may not match any history.
+	LogRecovery string `json:"log_recovery,omitempty"`
 }
 
 // ControlRevision is the receipt for an accepted control update.
@@ -198,6 +266,8 @@ type Registry struct {
 	mu       sync.Mutex
 	clock    Clock
 	interval time.Duration
+	openLog  LogOpener
+	corrupt  CorruptPolicy
 	runs     map[string]*liveRun
 	order    []string
 	nextID   int
@@ -218,11 +288,22 @@ func WithTickInterval(d time.Duration) Option {
 	return func(r *Registry) { r.interval = d }
 }
 
+// WithLogs replaces the log opener. The default keeps run history in memory.
+func WithLogs(open LogOpener) Option {
+	return func(r *Registry) { r.openLog = open }
+}
+
+// WithCorruptPolicy chooses what happens when a run's log opens corrupt.
+func WithCorruptPolicy(p CorruptPolicy) Option {
+	return func(r *Registry) { r.corrupt = p }
+}
+
 // NewRegistry returns an empty registry driven by the system clock.
 func NewRegistry(opts ...Option) *Registry {
 	reg := &Registry{
 		clock:    SystemClock(),
 		interval: DefaultTickInterval,
+		openLog:  EphemeralLogs(),
 		runs:     make(map[string]*liveRun),
 	}
 	for _, opt := range opts {
@@ -245,12 +326,23 @@ func (g *Registry) StartRun(req StartRunRequest) (Run, error) {
 		g.mu.Unlock()
 		return Run{}, ErrRegistryDown
 	}
-	if req.RunID == "" {
-		req.RunID = g.generateIDLocked()
-	} else if _, exists := g.runs[req.RunID]; exists {
-		g.mu.Unlock()
-		return Run{}, fmt.Errorf("%w: %s", ErrRunExists, req.RunID)
+	generated := req.RunID == ""
+	if !generated {
+		if _, exists := g.runs[req.RunID]; exists {
+			g.mu.Unlock()
+			return Run{}, fmt.Errorf("%w: %s", ErrRunExists, req.RunID)
+		}
 	}
+
+	// Opening the log is disk work under the registry lock. It is bounded
+	// and infrequent — once per run start — and holding the lock is what
+	// makes "this ID is free" still true by the time the log is open.
+	runID, runLog, recovered, err := g.claimLogLocked(req.RunID, generated)
+	if err != nil {
+		g.mu.Unlock()
+		return Run{}, err
+	}
+	req.RunID = runID
 
 	s, err := sim.New(sim.Config{
 		RunID:          req.RunID,
@@ -258,8 +350,10 @@ func (g *Registry) StartRun(req StartRunRequest) (Run, error) {
 		Organisms:      req.Organisms,
 		Controls:       req.Controls,
 		DuplicateEvery: req.DuplicateEvery,
+		Log:            runLog,
 	})
 	if err != nil {
+		_ = runLog.Close()
 		g.mu.Unlock()
 		return Run{}, err
 	}
@@ -269,6 +363,7 @@ func (g *Registry) StartRun(req StartRunRequest) (Run, error) {
 		req:       req,
 		sim:       s,
 		clock:     g.clock,
+		recovered: recovered,
 		state:     StateRunning,
 		startedAt: now,
 		updatedAt: now,
@@ -470,6 +565,78 @@ func (g *Registry) Close() error {
 	return nil
 }
 
+// maxIDAttempts bounds the search for an unused generated run ID. Reaching it
+// means the data directory holds that many consecutive runs, which is a real
+// answer rather than a reason to keep spinning.
+const maxIDAttempts = 1000
+
+// claimLogLocked finds a run ID whose log is empty and opens it.
+//
+// Generated IDs are sequential and the counter starts at zero in a fresh
+// process, so a restarted daemon proposes run-0001 again while last week's
+// run-0001 is still a directory. An ID whose log already holds records is
+// therefore skipped rather than failed: the collision is with history, not with
+// a live run, and the caller asked for "a run" rather than for that name.
+//
+// A caller-supplied ID gets no such courtesy. It named this run, and quietly
+// starting a differently-named one would be worse than refusing.
+func (g *Registry) claimLogLocked(runID string, generated bool) (string, *eventlog.Log, eventlog.Recovery, error) {
+	if !generated {
+		l, recovered, err := g.openRunLog(runID)
+		return runID, l, recovered, err
+	}
+
+	var lastErr error
+	for range maxIDAttempts {
+		id := g.generateIDLocked()
+		l, recovered, err := g.openRunLog(id)
+		if err == nil {
+			return id, l, recovered, nil
+		}
+		if !errors.Is(err, ErrRunHasHistory) {
+			return "", nil, recovered, err
+		}
+		lastErr = err
+	}
+	return "", nil, eventlog.Recovery{}, fmt.Errorf("no unused run id after %d attempts: %w", maxIDAttempts, lastErr)
+}
+
+// openRunLog opens a run's history and decides whether it is fit to run on.
+//
+// Three things can be wrong with it, and they are checked in the order that
+// makes the message useful. Opening can fail outright. It can succeed and
+// report corruption, which is the policy question in docs/decisions/0006. Or it
+// can succeed cleanly onto a log that already holds records — which means this
+// run ID has been used before, and appending a second run's events into the
+// first one's history would leave a log that replays as neither.
+func (g *Registry) openRunLog(runID string) (*eventlog.Log, eventlog.Recovery, error) {
+	runLog, recovered, err := g.openLog(runID)
+	if err != nil {
+		return nil, recovered, fmt.Errorf("open log for run %s: %w", runID, err)
+	}
+
+	if recovered.Corrupt != nil {
+		if g.corrupt == RefuseCorrupt {
+			_ = runLog.Close()
+			return nil, recovered, fmt.Errorf("%w: run %s discarded %d bytes: %w",
+				ErrCorruptLog, runID, recovered.Discarded, recovered.Corrupt)
+		}
+		// Continuing means the positions have to come back with the
+		// tail, or the projection resumes at an offset that now names a
+		// different record.
+		if err := runLog.Rewind(recovered); err != nil {
+			_ = runLog.Close()
+			return nil, recovered, fmt.Errorf("%w: run %s cannot continue: %w", ErrCorruptLog, runID, err)
+		}
+	}
+
+	if runLog.Next() > 0 {
+		_ = runLog.Close()
+		return nil, recovered, fmt.Errorf("%w: %s holds %d records", ErrRunHasHistory, runID, runLog.Next())
+	}
+	return runLog, recovered, nil
+}
+
 func (g *Registry) lookup(runID string) (*liveRun, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -521,6 +688,7 @@ type liveRun struct {
 	updatedAt  time.Time
 	finishedAt time.Time
 	failure    error
+	recovered  eventlog.Recovery
 
 	ticker  Ticker
 	subs    map[int]*Subscription
@@ -660,6 +828,10 @@ func (r *liveRun) view() Run {
 	}
 	if r.failure != nil {
 		v.Failure = r.failure.Error()
+	}
+	if r.recovered.Corrupt != nil {
+		v.LogRecovery = fmt.Sprintf("log opened corrupt and was allowed to continue: discarded %d bytes, resumed at offset %d: %v",
+			r.recovered.Discarded, r.recovered.Next, r.recovered.Corrupt)
 	}
 	return v
 }

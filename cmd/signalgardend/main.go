@@ -49,14 +49,24 @@ func realMain() error {
 	var (
 		grpcAddr     = flagString("SIGNAL_GARDEN_GRPC_ADDR", ":9090")
 		httpAddr     = flagString("SIGNAL_GARDEN_HTTP_ADDR", ":8080")
+		dataDir      = flagString("SIGNAL_GARDEN_DATA_DIR", "data")
 		tickInterval = flagDuration("SIGNAL_GARDEN_TICK_INTERVAL", engine.DefaultTickInterval)
 	)
+	corrupt, err := corruptPolicy(flagString("SIGNAL_GARDEN_ON_CORRUPT", "refuse"))
+	if err != nil {
+		return err
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	runs := engine.NewRegistry(engine.WithTickInterval(tickInterval))
+	runs := engine.NewRegistry(
+		engine.WithTickInterval(tickInterval),
+		engine.WithLogs(engine.DirectoryLogs(dataDir)),
+		engine.WithCorruptPolicy(corrupt),
+	)
 	defer runs.Close()
+	fmt.Fprintf(os.Stderr, "run history under %s, on corrupt: %s\n", dataDir, corrupt)
 
 	grpcServer := grpc.NewServer()
 	gardenv1.RegisterGardenServiceServer(grpcServer, service.New(runs))
@@ -164,6 +174,23 @@ func writePlain(w http.ResponseWriter, code int, body string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(code)
 	fmt.Fprintln(w, body)
+}
+
+// corruptPolicy parses SIGNAL_GARDEN_ON_CORRUPT.
+//
+// An unrecognised value is refused rather than defaulted. The whole point of
+// this setting is that somebody chose it deliberately, and a typo that silently
+// selected the permissive branch would be the worst possible way to find out
+// how it was spelled.
+func corruptPolicy(value string) (engine.CorruptPolicy, error) {
+	switch value {
+	case "refuse":
+		return engine.RefuseCorrupt, nil
+	case "continue":
+		return engine.ContinueCorrupt, nil
+	default:
+		return engine.RefuseCorrupt, fmt.Errorf("SIGNAL_GARDEN_ON_CORRUPT=%q is not refuse or continue", value)
+	}
 }
 
 // flagString reads configuration from the environment with a default.

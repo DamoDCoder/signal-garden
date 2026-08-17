@@ -12,6 +12,7 @@ go.work.sum
 # Local state and fixtures produced by runs
 /tmp/
 /.local/
+/data/
 
 # Editor and OS
 .DS_Store

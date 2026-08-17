@@ -145,10 +145,16 @@ func toStatus(err error) error {
 		return nil
 	case errors.Is(err, engine.ErrRunNotFound):
 		return status.Error(codes.NotFound, err.Error())
-	case errors.Is(err, engine.ErrRunExists):
+	case errors.Is(err, engine.ErrRunExists), errors.Is(err, engine.ErrRunHasHistory):
+		// A live run and a finished run's history are the same answer to
+		// the client: that name is taken, choose another or omit it.
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, engine.ErrRunFinished):
 		return status.Error(codes.FailedPrecondition, err.Error())
+	case errors.Is(err, engine.ErrCorruptLog):
+		// The disk returned bytes that were wrong. Nothing the caller
+		// sent caused it and retrying will not fix it.
+		return status.Error(codes.DataLoss, err.Error())
 	case errors.Is(err, engine.ErrRegistryDown), errors.Is(err, engine.ErrRunClosed):
 		return status.Error(codes.Unavailable, err.Error())
 	case errors.Is(err, domain.ErrInvalidControls):
