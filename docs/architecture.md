@@ -36,11 +36,12 @@ The event path is in-process by [0004](decisions/0004-event-spine-replaces-kafka
 | Processor | Validate, order, deduplicate, and apply events | Garden projection state |
 | Projection gateway | Fan out snapshots over WebSockets and serve reconnect catch-up | Connection state only |
 | REST gateway | Generated public HTTP/JSON adapter over gRPC | None |
+| React web client | Render projections and send control commands; lives in its own repository | None |
 | Replay/load tools | Reproduce fixtures and generate controlled pressure | None |
 
 ## Boundary Rules
 
-- Business APIs are defined in protobuf and served internally over gRPC.
+- Business APIs are defined in protobuf and served internally over gRPC. This repository owns that definition; the client repository consumes it and never describes a garden of its own — see [0011](decisions/0011-the-ui-is-a-separate-repository.md).
 - Public HTTP/JSON routes are generated from the same protobuf definitions with grpc-gateway or an equivalent generator.
 - WebSockets are a projection/read stream, not a second command API. Commands go through gRPC or generated REST.
 - Both transports serve one contract. The stream's frames are protobuf messages belonging to no rpc, marshalled exactly as the REST routes marshal theirs, so a client parses a garden the same way whichever delivered it — see [0010](decisions/0010-one-contract-for-both-transports.md). `internal/wire` holds the single translation both use.
@@ -56,3 +57,5 @@ The event path is in-process by [0004](decisions/0004-event-spine-replaces-kafka
 ## Initial Deployment Shape
 
 One container for `signalgardend`, one for the React development server. The event log is a library inside the daemon, so it needs a mounted data directory rather than a service of its own. Keep the topology simple enough to inspect with ordinary Docker Compose commands.
+
+The compose file lives in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden) rather than here. The dependency runs one way — the client needs a daemon, the daemon needs nothing from the client — so the file describing both belongs with the component that has the dependency. This repository stays runnable with `task serve` and no orchestration at all. See [0011](decisions/0011-the-ui-is-a-separate-repository.md).

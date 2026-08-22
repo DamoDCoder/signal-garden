@@ -1,7 +1,12 @@
 # 0003: Generate with protoc and vendored googleapis protos
 
 - **Date:** 2026-08-05
-- **Status:** Accepted
+- **Status:** Superseded by [0011](0011-the-ui-is-a-separate-repository.md)
+
+> **Superseded.** This record argued against buf partly because the React client
+> lived in this repository. It no longer does — see
+> [0011](0011-the-ui-is-a-separate-repository.md), which re-decides the question
+> and keeps protoc for reasons that survived the split.
 
 ## Context
 

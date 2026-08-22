@@ -110,15 +110,19 @@ The second preserves `SnapshotSchemaVersion` compatibility; the first is simpler
 
 ### 2. M1's unfinished half
 
-React control surface and Docker Compose, now in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden). This repository owns the contract: `proto/signal/garden/v1/garden.proto` is where a garden is defined, and the client generates from it rather than describing one of its own.
+React control surface and Docker Compose, both in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden). This repository owns the contract and stays runnable with `task serve` alone; the compose file describing both halves lives with the client, because the dependency runs that way round. See [0011](docs/decisions/0011-the-ui-is-a-separate-repository.md).
 
-What that client needs and does not have yet is a **generated TypeScript view of the contract**. The options are an OpenAPI spec from `protoc-gen-openapiv2` (grpc-gateway ships it, and the REST routes are already generated from these annotations) or generating from the `.proto` directly with `protoc-gen-es` or ts-proto. Either way the shapes are settled — snake_case, int64 as strings, both transports identical — so this is a packaging decision rather than a design one.
-
-Compose spans two repositories now, so which one owns the compose file is still open.
+What that client needs and does not have yet is a **generated TypeScript view of the contract** — an OpenAPI spec from `protoc-gen-openapiv2`, or generating from the `.proto` with `protoc-gen-es` or ts-proto. The shapes are settled either way, so this is a packaging decision rather than a design one.
 
 ### 3. Catch-up cost under load
 
 Resuming from a deep offset reads the whole gap on the run's own goroutine, which is a slice copy at M2's volumes and a measurable pause at M3's. [0009](docs/decisions/0009-catch-up-is-a-command-to-the-run-not-a-second-reader.md) records the fix and why it is deliberately not written yet: it wants a number from the load lab, not a guess.
+
+## The Contract
+
+`proto/signal/garden/v1/garden.proto` is the single definition of a run, a garden, an event, and a projection frame. Both transports serve it: the REST routes are generated from it, and the WebSocket stream marshals the same messages the same way. A consumer generates from this file and pins a tag rather than tracking `main`.
+
+Generated Go is committed, so a clean checkout builds without protoc. Only regeneration needs the toolchain — `task proto`.
 
 ## Documentation
 

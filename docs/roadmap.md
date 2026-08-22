@@ -25,7 +25,7 @@ Each milestone must end with something runnable, measurable, or reviewable. The 
 
 **Build:** a live run engine, Go services, gRPC internal calls, generated REST gateway for public control/query endpoints, WebSocket projection stream, React control surface, and Docker Compose.
 
-The WebSocket stream landed with M2's reconnect catch-up rather than here, because a stream that cannot resume is not the thing the exit criteria are about. The React surface and Compose are what remain.
+The WebSocket stream landed with M2's reconnect catch-up rather than here, because a stream that cannot resume is not the thing the exit criteria are about. The React surface and Compose are what remain, and both now live in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden) — so M1's remaining exit criteria are met over there, against the daemon this repository serves. See [0011](decisions/0011-the-ui-is-a-separate-repository.md).
 
 The run engine lands first and carries no transport: run lifecycle, control revisions, and projection fan-out are testable against a manual clock before any codegen exists, and the gRPC service and WebSocket gateway both become adapters over it. See [0002](decisions/0002-run-lifecycle-lives-in-an-engine-package.md).
 

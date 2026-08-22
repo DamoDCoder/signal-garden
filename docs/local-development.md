@@ -5,7 +5,7 @@
 | Milestone | Dependencies |
 | --- | --- |
 | M0 | Go only; in-memory adapters and a CLI projection |
-| M1 | Docker Compose, Go services, React, generated gateway, WebSocket endpoint |
+| M1 | Go services, generated gateway, WebSocket endpoint; React and Docker Compose live in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden) |
 | M2 | Go only; the event log is a library and needs a data directory, plus snapshot storage and replay tooling |
 | M3 | OpenTelemetry collector, Prometheus-compatible metrics, load generator |
 
@@ -29,7 +29,7 @@ task run -- -seed 42 -ticks 40 -pest 4
 task live -- -run demo -data ./data
 ```
 
-Still to come, each with the milestone that makes it meaningful: `dev` (start the local stack) and `reset` (drop local state) with Docker Compose, and `load` (a deterministic event burst) with M3's failure lab. `replay` is deliberately not a task — it takes a run ID and a data directory that only the person running it knows, so it stays `go run ./cmd/signalgarden -replay -run <id> -data <dir>`.
+Still to come: `load`, a deterministic event burst, with M3's failure lab. `dev` and `reset` are not coming here — the compose file that would back them lives in the client repository, because the dependency runs that way round. This repository serves with `task serve` and needs no orchestration to be useful. See [0011](decisions/0011-the-ui-is-a-separate-repository.md). `replay` is deliberately not a task — it takes a run ID and a data directory that only the person running it knows, so it stays `go run ./cmd/signalgarden -replay -run <id> -data <dir>`.
 
 `task proto` needs protoc on the PATH. The plugins are pinned by the tool directives in `go.mod` and built into `bin/tools`, and the googleapis annotation protos are vendored in `third_party/`, so generation runs offline. Generated code is committed, so building and testing need none of this.
 
@@ -42,3 +42,4 @@ Still to come, each with the milestone that makes it meaningful: `dev` (start th
 - Docker Compose health checks gate dependent services.
 - Test data and run state can be reset without manually deleting opaque volumes.
 - A fresh clone should have a documented path from setup to the first live garden.
+- The contract is defined and generated here. A consumer pins a tag rather than tracking `main`.
