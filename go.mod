@@ -10,6 +10,7 @@ tool (
 
 require (
 	github.com/DamoDCoder/event-spine v0.2.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	google.golang.org/genproto/googleapis/api v0.0.0-20250818200422-3122310a409c
 	google.golang.org/grpc v1.75.0

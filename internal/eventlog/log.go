@@ -187,6 +187,52 @@ func (l *Log) Replay() ([]event.Event, error) {
 	}
 }
 
+// ErrOffsetOutOfRange means a caller asked to read from a position the log
+// cannot serve: past the tail, or below the first record still on disk.
+var ErrOffsetOutOfRange = errors.New("offset is outside the log")
+
+// Since reads every record from an offset up to the tail.
+//
+// It is what a reconnecting client gets: it left holding a frame, the run kept
+// producing, and these are the records behind the difference. Like Replay it
+// uses its own cursor and never moves the projections group — a client falling
+// behind is not the projection falling behind.
+//
+// An offset past the tail is refused rather than answered with nothing. A
+// client that claims to have seen records the run never wrote is confused
+// about which run it is watching, and an empty slice would let it stay that
+// way.
+func (l *Log) Since(from int64) ([]event.Event, error) {
+	if from < int64(l.log.First()) || from > int64(l.log.Next()) {
+		return nil, fmt.Errorf("read from %d, log holds [%d,%d): %w",
+			from, l.log.First(), l.log.Next(), ErrOffsetOutOfRange)
+	}
+
+	reader, err := l.log.Reader(spinelog.Offset(from))
+	if err != nil {
+		if errors.Is(err, spinelog.ErrNotFound) {
+			return nil, fmt.Errorf("read from %d: %w", from, ErrOffsetOutOfRange)
+		}
+		return nil, fmt.Errorf("position reader at %d: %w", from, err)
+	}
+
+	var out []event.Event
+	for {
+		rec, err := reader.Next()
+		if errors.Is(err, spinelog.ErrEndOfLog) {
+			return out, nil
+		}
+		if err != nil {
+			return out, fmt.Errorf("read at offset %d: %w", reader.Offset(), err)
+		}
+		e, err := event.FromCore(rec.Event)
+		if err != nil {
+			return out, fmt.Errorf("decode record at offset %d: %w", rec.Offset, err)
+		}
+		out = append(out, e)
+	}
+}
+
 // Save writes a snapshot of the projection and then commits the group to the
 // same offset.
 //

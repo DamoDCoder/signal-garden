@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/damodbear/signal-garden/internal/domain"
+	"github.com/damodbear/signal-garden/internal/eventlog"
 	"github.com/damodbear/signal-garden/internal/run"
+	"github.com/damodbear/signal-garden/internal/sim"
 )
 
 var epoch = time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
@@ -627,5 +629,110 @@ func TestOffsetsDescribeTheLog(t *testing.T) {
 	if summary.Snapshot.FoldedOffset != summary.Telemetry.LogOffset {
 		t.Errorf("folded offset = %d, log offset = %d at finish",
 			summary.Snapshot.FoldedOffset, summary.Telemetry.LogOffset)
+	}
+}
+
+// TestResumeHandsOverWithoutAGapOrARepeat is the reconnect criterion.
+//
+// A client leaves holding a frame, the run keeps producing, and the client
+// comes back naming the offset it had. What it gets must join up exactly: the
+// records from that offset, then a snapshot standing at the end of them, then
+// live frames after that. The arithmetic is the assertion — from + missed must
+// equal the frame's folded offset, because any other answer is either a record
+// the client never sees or one it sees twice.
+func TestResumeHandsOverWithoutAGapOrARepeat(t *testing.T) {
+	reg, clock := newHarness(t)
+	mustStart(t, reg, baseRequest())
+
+	clock.Tick(3)
+	first, err := reg.Subscribe("run-test", 8)
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	left := <-first.Snapshots()
+	first.Close()
+	if left.FoldedOffset == 0 {
+		t.Fatal("folded offset = 0 after three ticks")
+	}
+
+	clock.Tick(4)
+
+	sub, missed, err := reg.Resume("run-test", 8, left.FoldedOffset)
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	defer sub.Close()
+	if len(missed) == 0 {
+		t.Fatal("no missed records after four ticks away")
+	}
+
+	back := <-sub.Snapshots()
+	if got, want := left.FoldedOffset+int64(len(missed)), back.FoldedOffset; got != want {
+		t.Errorf("resumed at %d + %d missed records = %d, frame stands at %d: the handover has a %d record gap",
+			left.FoldedOffset, len(missed), got, want, want-got)
+	}
+	if back.Tick != 7 {
+		t.Errorf("frame tick = %d, want 7", back.Tick)
+	}
+
+	// The stream continues from the frame rather than repeating it.
+	clock.Tick(1)
+	next := <-sub.Snapshots()
+	if next.Tick != 8 {
+		t.Errorf("next frame tick = %d, want 8", next.Tick)
+	}
+}
+
+// TestResumeFromZeroReplaysIntoTheSameGarden gives the offset arithmetic teeth.
+//
+// Catching up from the log's first record hands back the whole history, and
+// folding that history into an empty garden must reach the hash the live run
+// is showing. If catch-up dropped a record, reordered two, or handed back one
+// twice, the hashes part company.
+func TestResumeFromZeroReplaysIntoTheSameGarden(t *testing.T) {
+	reg, clock := newHarness(t)
+	req := baseRequest()
+	mustStart(t, reg, req)
+	clock.Tick(6)
+
+	sub, missed, err := reg.Resume("run-test", 8, 0)
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	defer sub.Close()
+
+	frame := <-sub.Snapshots()
+	if int64(len(missed)) != frame.FoldedOffset {
+		t.Fatalf("caught up %d records, frame stands at offset %d",
+			len(missed), frame.FoldedOffset)
+	}
+
+	garden, _, err := sim.Fold(req.Organisms, missed)
+	if err != nil {
+		t.Fatalf("Fold: %v", err)
+	}
+	if garden.Hash() != frame.Hash {
+		t.Errorf("folded catch-up hash = %s, live frame = %s", garden.Hash(), frame.Hash)
+	}
+}
+
+// TestResumeRefusesAnOffsetTheLogNeverWrote keeps a confused client from being
+// told it is up to date. Answering with an empty slice would let a client
+// holding another run's offset carry on believing it had missed nothing.
+func TestResumeRefusesAnOffsetTheLogNeverWrote(t *testing.T) {
+	reg, clock := newHarness(t)
+	mustStart(t, reg, baseRequest())
+	clock.Tick(2)
+
+	if _, _, err := reg.Resume("run-test", 8, 1<<20); !errors.Is(err, eventlog.ErrOffsetOutOfRange) {
+		t.Errorf("Resume past the tail: err = %v, want ErrOffsetOutOfRange", err)
+	}
+
+	tel, err := reg.GetTelemetry("run-test")
+	if err != nil {
+		t.Fatalf("GetTelemetry: %v", err)
+	}
+	if tel.Subscribers != 0 {
+		t.Errorf("subscribers = %d after a refused resume, want 0", tel.Subscribers)
 	}
 }

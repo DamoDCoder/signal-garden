@@ -25,6 +25,8 @@ Each milestone must end with something runnable, measurable, or reviewable. The 
 
 **Build:** a live run engine, Go services, gRPC internal calls, generated REST gateway for public control/query endpoints, WebSocket projection stream, React control surface, and Docker Compose.
 
+The WebSocket stream landed with M2's reconnect catch-up rather than here, because a stream that cannot resume is not the thing the exit criteria are about. The React surface and Compose are what remain.
+
 The run engine lands first and carries no transport: run lifecycle, control revisions, and projection fan-out are testable against a manual clock before any codegen exists, and the gRPC service and WebSocket gateway both become adapters over it. See [0002](decisions/0002-run-lifecycle-lives-in-an-engine-package.md).
 
 **Feedback demo:** start a run, adjust four controls, observe the garden, event rate, processing latency, and connection status.
@@ -42,6 +44,8 @@ The run engine lands first and carries no transport: run lifecycle, control revi
 
 **Build:** the [Event Spine](https://github.com/DamoDCoder/event-spine) log as the event transport, one log per run, a `projections` consumer group, snapshots, a replay command, idempotent processing, and reconnect catch-up.
 
+Reconnect catch-up is where M2 and M1 meet: the durable half is a read from a log offset, and the visible half is the WebSocket projection stream M1 left outstanding. Both land together, because neither is demonstrable alone.
+
 Kafka was the original plan and is not the plan now. The log is an in-process library, so the durability properties this milestone exists to prove become unit tests against a crashable filesystem rather than assertions about a broker in Compose. See [0004](decisions/0004-event-spine-replaces-kafka-as-the-event-backbone.md); ownership, corrupt-recovery policy, and compaction are [0005](decisions/0005-one-log-per-run-owned-by-the-run-goroutine.md), [0006](decisions/0006-refuse-to-start-on-corrupt-recovery.md), and [0007](decisions/0007-never-compact-a-run-log.md).
 
 **Feedback demo:** stop the consumer, create lag, restart it, and replay the run to the same final state.
@@ -49,7 +53,7 @@ Kafka was the original plan and is not the plan now. The log is an in-process li
 **Exit criteria:**
 
 - Duplicate delivery does not corrupt the projection.
-- A disconnected client receives a snapshot and missed updates.
+- A disconnected client receives a snapshot and missed updates. The catch-up records must end exactly where the snapshot after them begins, so the handover has neither a gap nor a repeat.
 - Replay determinism is tested from a fixture event log, and asserted on a `core.Chain` digest rather than a terminal garden hash.
 - A run survives a simulated power cut at every tick boundary, in all three crash shapes, losing nothing the log acknowledged as durable.
 - Partition keys, snapshot cadence, and run retention are documented.

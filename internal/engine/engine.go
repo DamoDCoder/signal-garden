@@ -22,6 +22,7 @@ import (
 	spinesim "github.com/DamoDCoder/event-spine/sim"
 
 	"github.com/damodbear/signal-garden/internal/domain"
+	"github.com/damodbear/signal-garden/internal/event"
 	"github.com/damodbear/signal-garden/internal/eventlog"
 	"github.com/damodbear/signal-garden/internal/processor"
 	"github.com/damodbear/signal-garden/internal/sim"
@@ -531,15 +532,44 @@ func (g *Registry) FinishRun(runID string) (RunSummary, error) {
 // snapshot, so a new client renders a garden before the next tick rather than
 // staring at an empty page. Pass buffer <= 0 for the default.
 func (g *Registry) Subscribe(runID string, buffer int) (*Subscription, error) {
+	sub, _, err := g.subscribe(runID, buffer, 0, false)
+	return sub, err
+}
+
+// Resume attaches like Subscribe and also returns the records the client
+// missed: everything the log holds from `from` up to the garden the first
+// frame on the channel describes.
+//
+// The catch-up read, the frame, and the attach all happen in one pass of the
+// run's goroutine, which is what makes the handover exact. A client that
+// reconnects gets records [from, folded), then a snapshot at folded, then live
+// frames after it — no gap to fill in and no record delivered twice.
+//
+// Reading the log from another goroutine is what decision 0005 forbids, and
+// this is why the read is a command to the run rather than a second reader.
+func (g *Registry) Resume(runID string, buffer int, from int64) (*Subscription, []event.Event, error) {
+	return g.subscribe(runID, buffer, from, true)
+}
+
+func (g *Registry) subscribe(runID string, buffer int, from int64, catchup bool) (*Subscription, []event.Event, error) {
 	lr, err := g.lookup(runID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if buffer <= 0 {
 		buffer = defaultSubscriberBuffer
 	}
 	sub := &Subscription{ch: make(chan GardenSnapshot, buffer), run: lr}
+	var (
+		missed []event.Event
+		reject error
+	)
 	if err := lr.do(func(r *liveRun) {
+		if catchup {
+			if missed, reject = r.sim.Since(from); reject != nil {
+				return
+			}
+		}
 		sub.ch <- r.snapshot()
 		r.snapshotsSent++
 		if r.state == StateFinished {
@@ -553,9 +583,12 @@ func (g *Registry) Subscribe(runID string, buffer int) (*Subscription, error) {
 		sub.id = r.nextSub
 		r.subs[sub.id] = sub
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return sub, nil
+	if reject != nil {
+		return nil, nil, reject
+	}
+	return sub, missed, nil
 }
 
 // ListRuns returns metadata for every run in start order.

@@ -57,6 +57,17 @@ curl localhost:8080/v1/runs/run-0001/telemetry
 
 `GET /healthz` and `GET /readyz` are the liveness and readiness checks. Regenerate the contract with `make proto`, which needs protoc; building and testing do not.
 
+### Projection Stream
+
+```text
+ws://localhost:8080/v1/runs/demo/stream          start at the garden as it is now
+ws://localhost:8080/v1/runs/demo/stream?from=246 come back at log offset 246
+```
+
+A frame per tick, as JSON. A client that passed `from` gets one `catchup` frame first, carrying the records it missed; the snapshot right behind it stands exactly where those records end, so the handover has neither a gap nor a repeat. Folding the catch-up records into an empty garden reaches the hash of that snapshot, which is what the tests assert rather than trusting a count.
+
+The stream is read-only — nothing sent over it changes a run — and it is served from the daemon rather than the gateway, because it is not a gRPC method. See [docs/contracts.md](docs/contracts.md) for the frame shapes and rejection codes, and [0009](docs/decisions/0009-catch-up-is-a-command-to-the-run-not-a-second-reader.md) for why catch-up runs on the run's own goroutine.
+
 ### Run History
 
 The daemon keeps each run's events in an append-only log under `data/runs/<run_id>/`, one directory per run:
@@ -81,7 +92,7 @@ Replay reaches the same snapshot hash the live run ended on, in a different proc
 
 Branch `feat/adopt-event-spine`, tags `v0.1.0` through `v0.4.0`, no remote configured yet. Everything passes under `make check`.
 
-M2's exit criteria stand at: duplicate delivery ✓, replay determinism on a chain ✓, crash survival ✓, keys and retention documented ✓. Reconnect catch-up is the one still open, and it is waiting on the WebSocket stream rather than on anything durable.
+**M2's exit criteria are met.** Duplicate delivery ✓, reconnect catch-up ✓, replay determinism on a chain ✓, crash survival ✓, keys and retention documented ✓. The projection stream that catch-up needed was M1's last outstanding transport, so M1 is down to the React surface and Compose.
 
 ### 1. Make the producer resumable
 
@@ -96,15 +107,13 @@ Two shapes worth weighing before writing anything:
 
 The second preserves `SnapshotSchemaVersion` compatibility; the first is simpler forever after. Either way, `TestSnapshotCadenceDoesNotChangeTheRun` and the chain tests are the guard rails.
 
-### 2. Log offsets on the wire
+### 2. M1's unfinished half
 
-`TelemetrySnapshot.Pending` is already real consumer lag, but the log's own offsets never leave the process. Add committed offset and log offset to `garden.proto` and the projection frame, then reconnect catch-up reading from a client's last sequence rather than only the newest snapshot.
+React control surface and Docker Compose. The stream they would both use is now there, and `GET /v1/runs/{run_id}/stream` is the only thing a browser needs beyond the REST routes.
 
-This needs a proto regeneration, which is also where the last stale Kafka comment dies — `proto/signal/garden/v1/garden.proto:33` and its generated twin still say worker count and batch size "arrive at M2 with Kafka". It was left deliberately, because touching it means a codegen run and this slice does one anyway.
+### 3. Catch-up cost under load
 
-### 3. M1's unfinished half
-
-WebSocket projection stream, React control surface, Docker Compose. The `v0.2.0` changelog entry says plainly that M1 is not complete. Item 2 touches the WebSocket frame, so the two are adjacent but not the same work — the stream itself slots onto `engine.Subscribe`, which has been waiting since the first M1 slice.
+Resuming from a deep offset reads the whole gap on the run's own goroutine, which is a slice copy at M2's volumes and a measurable pause at M3's. [0009](docs/decisions/0009-catch-up-is-a-command-to-the-run-not-a-second-reader.md) records the fix and why it is deliberately not written yet: it wants a number from the load lab, not a guess.
 
 ## Documentation
 

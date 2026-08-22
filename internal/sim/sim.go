@@ -313,6 +313,15 @@ func (s *Sim) Folded() int64 {
 // the only thing that commits, and New seeds this from the log it was handed.
 func (s *Sim) Committed() int64 { return s.committed }
 
+// Since returns the records from an offset up to the tail, without moving the
+// projection's cursor. It is what a client that fell behind is missing.
+func (s *Sim) Since(from int64) ([]event.Event, error) {
+	if s.log == nil {
+		return nil, nil
+	}
+	return s.log.Since(from)
+}
+
 // Log returns the run's event history. Callers read offsets and commit through
 // it; it is not safe to use from another goroutine.
 func (s *Sim) Log() *eventlog.Log { return s.log }

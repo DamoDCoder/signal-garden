@@ -8,11 +8,15 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 ### Added
 
+- `internal/projection`: the WebSocket projection stream at `GET /v1/runs/{run_id}/stream`, and reconnect catch-up at `?from=<offset>`. It is a read transport — client messages are discarded — and it carries no protobuf, because it is not a gRPC method. Rejections happen before the upgrade, so an unknown run is a 404 a fetch can read rather than a socket that opens and immediately closes.
+- `engine.Resume` and `eventlog.Log.Since`. A reconnecting client's catch-up read, its first frame, and its attach all happen in one pass of the run's goroutine, which is what makes the handover exact: records `[from, X)`, then a snapshot standing at `X`, then live frames. Decision 0009 records why the read is a command to the run rather than a second reader, and what it will cost when a run is long enough to matter.
+- `eventlog.ErrOffsetOutOfRange`. Resuming from an offset the log never wrote is refused rather than answered with an empty catch-up: a client holding another run's offset would otherwise carry on believing it had missed nothing.
 - Log offsets on the wire. `GardenSnapshot.folded_offset` is the first record a garden has not folded; `TelemetrySnapshot.log_offset` and `committed_offset` are how many records the run holds and how far the projections group has durably folded. `TestOffsetsDescribeTheLog` pins the difference: a commit only happens alongside a snapshot, so `committed_offset` must sit still through ticks that write none, and a client watching it move every tick would be reading a promise the log has not made.
 - `Sim.Offset`, `Sim.Folded`, and `Sim.Committed`. `Committed` returns the offset this `Sim` last committed rather than re-reading the group file, because telemetry is a read path with nowhere to put an I/O error; `New` seeds it from the log it was handed, so a reopened log reports where the previous process left off.
 
 ### Changed
 
+- `github.com/gorilla/websocket` as a direct dependency. It is the first runtime dependency outside the spine and the gRPC toolchain.
 - The stale Kafka comment in `Controls` is gone. Worker count, batch size, and retry policy are M3's, and the surrounding regeneration is what finally removed the last one of these in a hand-written file.
 
 ## [0.4.0] — 2026-08-17

@@ -34,7 +34,7 @@ The event path is in-process by [0004](decisions/0004-event-spine-replaces-kafka
 | Event producer | Turn accepted controls into deterministic domain events | None; emits commands/events |
 | Event log | Durably hold every event of a run, in order, and redeliver on restart | The run's event history |
 | Processor | Validate, order, deduplicate, and apply events | Garden projection state |
-| Projection gateway | Fan out snapshots and telemetry over WebSockets | Connection state only |
+| Projection gateway | Fan out snapshots over WebSockets and serve reconnect catch-up | Connection state only |
 | REST gateway | Generated public HTTP/JSON adapter over gRPC | None |
 | Replay/load tools | Reproduce fixtures and generate controlled pressure | None |
 
@@ -44,7 +44,8 @@ The event path is in-process by [0004](decisions/0004-event-spine-replaces-kafka
 - Public HTTP/JSON routes are generated from the same protobuf definitions with grpc-gateway or an equivalent generator.
 - WebSockets are a projection/read stream, not a second command API. Commands go through gRPC or generated REST.
 - The [Event Spine](https://github.com/DamoDCoder/event-spine) log is the durable event transport from M2. The in-memory bus it replaces was permitted only for M0.
-- One log per run, owned by that run's goroutine. The log takes no locks, so nothing may touch it from outside — see [0005](decisions/0005-one-log-per-run-owned-by-the-run-goroutine.md).
+- One log per run, owned by that run's goroutine. The log takes no locks, so nothing may touch it from outside — see [0005](decisions/0005-one-log-per-run-owned-by-the-run-goroutine.md). Reconnect catch-up reads the log, so it is a command handed to the run rather than a second reader: the projection gateway asks, and the run's own goroutine answers.
+- A reconnecting client is handed its missed records and the snapshot standing at the end of them in one pass of that goroutine, which is what makes the handover exact rather than approximately current.
 - Run logs are never compacted. Events are cumulative deltas, so dropping superseded records changes the garden — see [0007](decisions/0007-never-compact-a-run-log.md).
 - Delivery is at-least-once. The processor deduplicates on the idempotency key in [events.md](events.md); nothing depends on exactly-once.
 - The processor is the authority for garden state. Clients render projections and do not calculate authoritative outcomes.

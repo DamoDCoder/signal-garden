@@ -51,6 +51,38 @@ Expose only public control and query operations through generated REST/JSON rout
 
 WebSocket streaming remains a separate transport because it is not a conventional request/response API. The public gateway should authenticate and rate-limit future internet-facing use, even while local development remains open.
 
+## Projection Stream
+
+```text
+GET /v1/runs/{run_id}/stream          a new client, starting at the current garden
+GET /v1/runs/{run_id}/stream?from=N   a returning client, resuming at log offset N
+```
+
+The stream is a read transport: nothing a client sends over it changes a run, and the daemon discards client messages other than the pongs that keep the socket alive. It is served from the daemon rather than the gateway, and it carries no protobuf — it is not a gRPC method, per [architecture.md](architecture.md).
+
+Frames are JSON text messages using the field names in [events.md](events.md):
+
+```json
+{"type": "snapshot", "run_id": "demo", "snapshot": { ... }}
+{"type": "catchup",  "run_id": "demo", "catchup": {"from": 246, "to": 852, "events": [ ... ]}}
+```
+
+A `catchup` frame arrives at most once, first, and only for a client that passed `from`. It carries the records between the offset that client resumed at and the garden the snapshot immediately after it describes, so `catchup.to` always equals the next frame's `folded_offset`. That equality is the handover: anything else is a record the client never sees or one it sees twice.
+
+Rejections happen before the upgrade, so they are ordinary HTTP statuses rather than a socket that opens and immediately closes:
+
+| Condition | Status |
+| --- | --- |
+| No such run | 404 |
+| `from` is not a number, is negative, or names an offset the log never wrote | 400 |
+| Registry shutting down | 503 |
+
+An offset past the tail is refused rather than answered with an empty catch-up. A client holding an offset this run never reached is confused about which run it is watching, and an empty frame would let it stay that way.
+
+A finished run sends its final frame and then a normal close, so a client can tell a completed run from a dropped connection.
+
+Telemetry does not stream yet. The performance panel polls `GET /v1/runs/{run_id}/telemetry`, and folding it into the stream is M3's, when the counters become histograms worth pushing.
+
 ## Log Offsets
 
 Three offsets cross the wire, and they mean different things:

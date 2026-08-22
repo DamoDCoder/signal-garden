@@ -6,8 +6,9 @@
 // architecture describes is a real one and its failures are visible locally
 // instead of only in a deployed topology.
 //
-// The WebSocket projection stream is not here yet; it arrives with the next M1
-// slice, alongside the React control surface.
+// The WebSocket projection stream is served directly from this process rather
+// than through the gateway: it is a read stream, not a gRPC method, and it
+// reads the run engine the same way the service does.
 package main
 
 import (
@@ -31,6 +32,7 @@ import (
 
 	"github.com/damodbear/signal-garden/internal/engine"
 	gardenv1 "github.com/damodbear/signal-garden/internal/gen/signal/garden/v1"
+	"github.com/damodbear/signal-garden/internal/projection"
 	"github.com/damodbear/signal-garden/internal/service"
 )
 
@@ -102,7 +104,7 @@ func realMain() error {
 
 	httpServer := &http.Server{
 		Addr:              httpAddr,
-		Handler:           routes(gateway, &ready),
+		Handler:           routes(gateway, projection.Handler(runs), &ready),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
@@ -145,15 +147,21 @@ func newGateway(ctx context.Context, target string) (http.Handler, error) {
 	return mux, nil
 }
 
-// routes assembles the public HTTP surface: generated REST under /v1, plus the
-// two checks Compose health gating needs.
+// routes assembles the public HTTP surface: generated REST under /v1, the
+// projection stream, plus the two checks Compose health gating needs.
 //
 // Liveness answers "is this process running"; readiness answers "can it serve".
 // They differ during startup and shutdown, which is exactly when a health check
 // has to tell them apart.
-func routes(gateway http.Handler, ready *atomic.Bool) http.Handler {
+func routes(gateway http.Handler, stream http.Handler, ready *atomic.Bool) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/v1/", gateway)
+
+	// The stream sits under /v1 and is not a generated route, so it needs a
+	// more specific pattern than the gateway's prefix. It wins because
+	// ServeMux prefers the more specific pattern, not because of the order
+	// these are registered in.
+	mux.Handle("GET /v1/runs/{run_id}/stream", stream)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writePlain(w, http.StatusOK, "ok")
