@@ -51,6 +51,20 @@ Expose only public control and query operations through generated REST/JSON rout
 
 WebSocket streaming remains a separate transport because it is not a conventional request/response API. The public gateway should authenticate and rate-limit future internet-facing use, even while local development remains open.
 
+## Log Offsets
+
+Three offsets cross the wire, and they mean different things:
+
+| Field | Message | Meaning |
+| --- | --- | --- |
+| `folded_offset` | `GardenSnapshot` | The first record this garden has not folded. A client that has this frame resumes from here. |
+| `log_offset` | `TelemetrySnapshot` | The offset the log will assign next, so also how many records the run holds. |
+| `committed_offset` | `TelemetrySnapshot` | How far the projections group has durably folded — where a restart resumes. |
+
+`committed_offset` moves at snapshot cadence rather than per tick, because nothing commits without first writing the state built from those records. The gap between it and `log_offset` is what a restart would redeliver, and idempotent processing is what makes that harmless.
+
+`sequence` orders frames within a connection; `folded_offset` names the history behind one. They are not interchangeable: sequence counts frames the run emitted, and a run emits none while nobody is watching.
+
 ## Compatibility Rules
 
 - Add fields with new field numbers; never reuse removed numbers.

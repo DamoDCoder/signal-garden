@@ -92,6 +92,10 @@ type Sim struct {
 	revision  int
 	pending   []staged
 	published int
+
+	// committed is the offset the projections group was last committed to.
+	// See Committed for why it is cached rather than read.
+	committed int64
 }
 
 // New creates a simulation positioned at tick zero.
@@ -120,14 +124,22 @@ func New(cfg Config) (*Sim, error) {
 		}
 	}
 
+	// A log handed in may already carry a commit from a previous process, so
+	// the cached offset starts where that log left off rather than at zero.
+	committed, err := l.Committed()
+	if err != nil {
+		return nil, fmt.Errorf("read committed offset for run %s: %w", cfg.RunID, err)
+	}
+
 	return &Sim{
-		cfg:      cfg,
-		garden:   garden,
-		prod:     prod,
-		log:      l,
-		proc:     processor.New(garden),
-		chain:    core.NewChain(),
-		controls: cfg.Controls,
+		cfg:       cfg,
+		garden:    garden,
+		prod:      prod,
+		log:       l,
+		proc:      processor.New(garden),
+		chain:     core.NewChain(),
+		controls:  cfg.Controls,
+		committed: committed,
 	}, nil
 }
 
@@ -273,6 +285,33 @@ func (s *Sim) Pending() int {
 	}
 	return s.log.Pending()
 }
+
+// Offset returns the offset the log will assign to the next record, which is
+// also how many records this run has appended.
+func (s *Sim) Offset() int64 {
+	if s.log == nil {
+		return 0
+	}
+	return s.log.Next()
+}
+
+// Folded returns the offset of the first record the garden has not folded. It
+// is what a projection frame carries, and it is where a client that has seen
+// that frame asks to resume from.
+func (s *Sim) Folded() int64 {
+	if s.log == nil {
+		return 0
+	}
+	return s.log.Read()
+}
+
+// Committed returns how far the projections group has durably folded.
+//
+// It is the offset this Sim last committed rather than a read of the group
+// file, because telemetry is a read path with nowhere to put an I/O error, and
+// a wrong offset on the wire is worse than no offset. The two agree: Save is
+// the only thing that commits, and New seeds this from the log it was handed.
+func (s *Sim) Committed() int64 { return s.committed }
 
 // Log returns the run's event history. Callers read offsets and commit through
 // it; it is not safe to use from another goroutine.

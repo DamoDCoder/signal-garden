@@ -77,9 +77,11 @@ func (s *Sim) Save() error {
 	if err != nil {
 		return fmt.Errorf("encode snapshot for run %s: %w", s.cfg.RunID, err)
 	}
+	at := s.log.Read()
 	if err := s.log.Save(state); err != nil {
 		return fmt.Errorf("save run %s at tick %d: %w", s.cfg.RunID, s.tick, err)
 	}
+	s.committed = at
 	return nil
 }
 

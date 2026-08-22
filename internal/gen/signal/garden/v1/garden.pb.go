@@ -92,7 +92,7 @@ func (RunState) EnumDescriptor() ([]byte, []int) {
 // Controls are the knobs a player turns during a run: how many events each
 // tick produces, and the relative mix of event types.
 //
-// Worker count, batch size, and retry policy arrive at M2 with Kafka. They are
+// Worker count, batch size, and retry policy are M3's, not M2's. They are
 // meaningless while the processor drains inside the tick, so they are not
 // reserved here; new controls take new field numbers when they become real.
 type Controls struct {
@@ -492,6 +492,10 @@ type GardenSnapshot struct {
 	Hash          string                 `protobuf:"bytes,8,opt,name=hash,proto3" json:"hash,omitempty"`
 	ObservedAt    *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
 	SchemaVersion int32                  `protobuf:"varint,10,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	// folded_offset is the offset of the first log record this garden has not
+	// folded, so it is the position a reconnecting client asks to resume from.
+	// Sequence orders frames; this names the history behind one.
+	FoldedOffset  int64 `protobuf:"varint,11,opt,name=folded_offset,json=foldedOffset,proto3" json:"folded_offset,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -592,6 +596,13 @@ func (x *GardenSnapshot) GetObservedAt() *timestamppb.Timestamp {
 func (x *GardenSnapshot) GetSchemaVersion() int32 {
 	if x != nil {
 		return x.SchemaVersion
+	}
+	return 0
+}
+
+func (x *GardenSnapshot) GetFoldedOffset() int64 {
+	if x != nil {
+		return x.FoldedOffset
 	}
 	return 0
 }
@@ -701,7 +712,7 @@ type TelemetrySnapshot struct {
 	Published    int64                  `protobuf:"varint,6,opt,name=published,proto3" json:"published,omitempty"`
 	Processor    *ProcessorStats        `protobuf:"bytes,7,opt,name=processor,proto3" json:"processor,omitempty"`
 	// pending is events published but not yet processed. It is zero while the
-	// processor drains inside the tick, and becomes consumer lag at M2.
+	// processor drains inside the tick, and is consumer lag from M2.
 	Pending          int64                  `protobuf:"varint,8,opt,name=pending,proto3" json:"pending,omitempty"`
 	Subscribers      int32                  `protobuf:"varint,9,opt,name=subscribers,proto3" json:"subscribers,omitempty"`
 	SnapshotsSent    int64                  `protobuf:"varint,10,opt,name=snapshots_sent,json=snapshotsSent,proto3" json:"snapshots_sent,omitempty"`
@@ -709,8 +720,15 @@ type TelemetrySnapshot struct {
 	Uptime           *durationpb.Duration   `protobuf:"bytes,12,opt,name=uptime,proto3" json:"uptime,omitempty"`
 	ObservedAt       *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
 	SchemaVersion    int32                  `protobuf:"varint,14,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// log_offset is the offset the run's log will assign to the next record,
+	// which is also how many records it holds.
+	LogOffset int64 `protobuf:"varint,15,opt,name=log_offset,json=logOffset,proto3" json:"log_offset,omitempty"`
+	// committed_offset is how far the projections group has durably folded: the
+	// position a restart resumes from. It moves at snapshot cadence rather than
+	// per tick, so it trails log_offset by design.
+	CommittedOffset int64 `protobuf:"varint,16,opt,name=committed_offset,json=committedOffset,proto3" json:"committed_offset,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *TelemetrySnapshot) Reset() {
@@ -837,6 +855,20 @@ func (x *TelemetrySnapshot) GetObservedAt() *timestamppb.Timestamp {
 func (x *TelemetrySnapshot) GetSchemaVersion() int32 {
 	if x != nil {
 		return x.SchemaVersion
+	}
+	return 0
+}
+
+func (x *TelemetrySnapshot) GetLogOffset() int64 {
+	if x != nil {
+		return x.LogOffset
+	}
+	return 0
+}
+
+func (x *TelemetrySnapshot) GetCommittedOffset() int64 {
+	if x != nil {
+		return x.CommittedOffset
 	}
 	return 0
 }
@@ -1396,7 +1428,7 @@ const file_signal_garden_v1_garden_proto_rawDesc = "" +
 	"\x0eaverage_health\x18\x04 \x01(\x01R\raverageHealth\x12#\n" +
 	"\raverage_stage\x18\x05 \x01(\x01R\faverageStage\x12\x1f\n" +
 	"\vtotal_stage\x18\x06 \x01(\x05R\n" +
-	"totalStage\"\x8c\x03\n" +
+	"totalStage\"\xb1\x03\n" +
 	"\x0eGardenSnapshot\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1a\n" +
 	"\bsequence\x18\x02 \x01(\x03R\bsequence\x12\x12\n" +
@@ -1409,7 +1441,8 @@ const file_signal_garden_v1_garden_proto_rawDesc = "" +
 	"\vobserved_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"observedAt\x12%\n" +
 	"\x0eschema_version\x18\n" +
-	" \x01(\x05R\rschemaVersion\"\xc8\x02\n" +
+	" \x01(\x05R\rschemaVersion\x12#\n" +
+	"\rfolded_offset\x18\v \x01(\x03R\ffoldedOffset\"\xc8\x02\n" +
 	"\x0eProcessorStats\x12\x1a\n" +
 	"\breceived\x18\x01 \x01(\x03R\breceived\x12\x18\n" +
 	"\aapplied\x18\x02 \x01(\x03R\aapplied\x12\x1b\n" +
@@ -1422,7 +1455,7 @@ const file_signal_garden_v1_garden_proto_rawDesc = "" +
 	"\aby_type\x18\a \x03(\v2,.signal.garden.v1.ProcessorStats.ByTypeEntryR\x06byType\x1a9\n" +
 	"\vByTypeEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\xd1\x04\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\x9b\x05\n" +
 	"\x11TelemetrySnapshot\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x120\n" +
 	"\x05state\x18\x02 \x01(\x0e2\x1a.signal.garden.v1.RunStateR\x05state\x12\x12\n" +
@@ -1439,7 +1472,10 @@ const file_signal_garden_v1_garden_proto_rawDesc = "" +
 	"\x06uptime\x18\f \x01(\v2\x19.google.protobuf.DurationR\x06uptime\x12;\n" +
 	"\vobserved_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"observedAt\x12%\n" +
-	"\x0eschema_version\x18\x0e \x01(\x05R\rschemaVersion\"\xa3\x01\n" +
+	"\x0eschema_version\x18\x0e \x01(\x05R\rschemaVersion\x12\x1d\n" +
+	"\n" +
+	"log_offset\x18\x0f \x01(\x03R\tlogOffset\x12)\n" +
+	"\x10committed_offset\x18\x10 \x01(\x03R\x0fcommittedOffset\"\xa3\x01\n" +
 	"\x0fControlRevision\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\x05R\brevision\x126\n" +

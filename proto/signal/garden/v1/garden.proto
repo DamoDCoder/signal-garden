@@ -30,7 +30,7 @@ enum RunState {
 // Controls are the knobs a player turns during a run: how many events each
 // tick produces, and the relative mix of event types.
 //
-// Worker count, batch size, and retry policy arrive at M2 with Kafka. They are
+// Worker count, batch size, and retry policy are M3's, not M2's. They are
 // meaningless while the processor drains inside the tick, so they are not
 // reserved here; new controls take new field numbers when they become real.
 message Controls {
@@ -110,6 +110,11 @@ message GardenSnapshot {
 
   google.protobuf.Timestamp observed_at = 9;
   int32 schema_version = 10;
+
+  // folded_offset is the offset of the first log record this garden has not
+  // folded, so it is the position a reconnecting client asks to resume from.
+  // Sequence orders frames; this names the history behind one.
+  int64 folded_offset = 11;
 }
 
 // ProcessorStats counts what the processor did with the events it received.
@@ -135,7 +140,7 @@ message TelemetrySnapshot {
   ProcessorStats processor = 7;
 
   // pending is events published but not yet processed. It is zero while the
-  // processor drains inside the tick, and becomes consumer lag at M2.
+  // processor drains inside the tick, and is consumer lag from M2.
   int64 pending = 8;
 
   int32 subscribers = 9;
@@ -144,6 +149,15 @@ message TelemetrySnapshot {
   google.protobuf.Duration uptime = 12;
   google.protobuf.Timestamp observed_at = 13;
   int32 schema_version = 14;
+
+  // log_offset is the offset the run's log will assign to the next record,
+  // which is also how many records it holds.
+  int64 log_offset = 15;
+
+  // committed_offset is how far the projections group has durably folded: the
+  // position a restart resumes from. It moves at snapshot cadence rather than
+  // per tick, so it trails log_offset by design.
+  int64 committed_offset = 16;
 }
 
 // ControlRevision is the receipt for an accepted control update.

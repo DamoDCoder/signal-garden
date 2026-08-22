@@ -248,6 +248,7 @@ func snapshotToProto(s engine.GardenSnapshot) *gardenv1.GardenSnapshot {
 		Hash:          s.Hash,
 		ObservedAt:    timestampOf(s.ObservedAt),
 		SchemaVersion: event.SchemaVersion,
+		FoldedOffset:  s.FoldedOffset,
 	}
 }
 
@@ -267,6 +268,8 @@ func telemetryToProto(t engine.TelemetrySnapshot) *gardenv1.TelemetrySnapshot {
 		Uptime:           durationpb.New(t.Uptime),
 		ObservedAt:       timestampOf(t.ObservedAt),
 		SchemaVersion:    event.SchemaVersion,
+		LogOffset:        t.LogOffset,
+		CommittedOffset:  t.CommittedOffset,
 	}
 }
 

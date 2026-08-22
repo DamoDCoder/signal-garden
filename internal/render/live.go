@@ -51,6 +51,7 @@ func Summary(w io.Writer, sum engine.RunSummary) error {
 	b.WriteString(strings.Repeat("-", 52) + "\n")
 	fmt.Fprintf(&b, "frames     %d sent, %d dropped to slow subscribers\n", tel.SnapshotsSent, tel.SnapshotsDropped)
 	fmt.Fprintf(&b, "pending    %d events published but not processed\n", tel.Pending)
+	fmt.Fprintf(&b, "log        %d records, committed through %d\n", tel.LogOffset, tel.CommittedOffset)
 
 	fmt.Fprintf(&b, "\nsnapshot   %s\n", snap.Hash)
 	b.WriteString("\nA batch run with the same seed and control ticks reaches this snapshot.\n")

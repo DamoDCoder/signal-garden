@@ -554,3 +554,78 @@ func TestConcurrentAccess(t *testing.T) {
 		t.Errorf("revision = %d, want 50", got.Revision)
 	}
 }
+
+// TestOffsetsDescribeTheLog pins what the three offsets on the wire mean.
+//
+// LogOffset counts records the run appended, FoldedOffset is where the garden
+// has read to, and CommittedOffset is what a restart would resume from. The
+// interesting one is the gap: a commit only happens with a snapshot, so
+// CommittedOffset must sit still through ticks that write no snapshot. A
+// client watching it move every tick would be reading a promise the log has
+// not made.
+func TestOffsetsDescribeTheLog(t *testing.T) {
+	clock := NewManualClock(epoch, 100*time.Millisecond)
+	reg := NewRegistry(WithClock(clock), WithSnapshotEvery(3))
+	t.Cleanup(func() {
+		if err := reg.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
+	mustStart(t, reg, baseRequest())
+
+	mustTelemetry := func() TelemetrySnapshot {
+		t.Helper()
+		tel, err := reg.GetTelemetry("run-test")
+		if err != nil {
+			t.Fatalf("GetTelemetry: %v", err)
+		}
+		return tel
+	}
+
+	clock.Tick(3)
+	saved := mustTelemetry()
+	if saved.LogOffset != int64(saved.Published) {
+		t.Errorf("log offset = %d, published = %d; every published event is one record",
+			saved.LogOffset, saved.Published)
+	}
+	if saved.LogOffset == 0 {
+		t.Fatal("log offset = 0 after three ticks, want the tick's records")
+	}
+	if saved.CommittedOffset != saved.LogOffset {
+		t.Errorf("committed offset = %d, want %d: the third tick wrote a snapshot",
+			saved.CommittedOffset, saved.LogOffset)
+	}
+
+	clock.Tick(2)
+	between := mustTelemetry()
+	if between.LogOffset <= saved.LogOffset {
+		t.Errorf("log offset = %d after two more ticks, want more than %d",
+			between.LogOffset, saved.LogOffset)
+	}
+	if between.CommittedOffset != saved.LogOffset {
+		t.Errorf("committed offset = %d, want %d: ticks four and five wrote no snapshot",
+			between.CommittedOffset, saved.LogOffset)
+	}
+
+	snap, err := reg.GetSnapshot("run-test")
+	if err != nil {
+		t.Fatalf("GetSnapshot: %v", err)
+	}
+	if snap.FoldedOffset != between.LogOffset {
+		t.Errorf("folded offset = %d, log offset = %d; the projection drains inside the tick",
+			snap.FoldedOffset, between.LogOffset)
+	}
+
+	summary, err := reg.FinishRun("run-test")
+	if err != nil {
+		t.Fatalf("FinishRun: %v", err)
+	}
+	if summary.Telemetry.CommittedOffset != summary.Telemetry.LogOffset {
+		t.Errorf("committed offset = %d, log offset = %d; finishing writes a final snapshot",
+			summary.Telemetry.CommittedOffset, summary.Telemetry.LogOffset)
+	}
+	if summary.Snapshot.FoldedOffset != summary.Telemetry.LogOffset {
+		t.Errorf("folded offset = %d, log offset = %d at finish",
+			summary.Snapshot.FoldedOffset, summary.Telemetry.LogOffset)
+	}
+}

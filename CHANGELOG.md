@@ -6,7 +6,14 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- Log offsets on the wire. `GardenSnapshot.folded_offset` is the first record a garden has not folded; `TelemetrySnapshot.log_offset` and `committed_offset` are how many records the run holds and how far the projections group has durably folded. `TestOffsetsDescribeTheLog` pins the difference: a commit only happens alongside a snapshot, so `committed_offset` must sit still through ticks that write none, and a client watching it move every tick would be reading a promise the log has not made.
+- `Sim.Offset`, `Sim.Folded`, and `Sim.Committed`. `Committed` returns the offset this `Sim` last committed rather than re-reading the group file, because telemetry is a read path with nowhere to put an I/O error; `New` seeds it from the log it was handed, so a reopened log reports where the previous process left off.
+
+### Changed
+
+- The stale Kafka comment in `Controls` is gone. Worker count, batch size, and retry policy are M3's, and the surrounding regeneration is what finally removed the last one of these in a hand-written file.
 
 ## [0.4.0] — 2026-08-17
 

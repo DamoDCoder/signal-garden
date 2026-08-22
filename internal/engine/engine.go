@@ -223,6 +223,11 @@ type GardenSnapshot struct {
 	Organisms  []domain.Organism `json:"organisms"`
 	Hash       string            `json:"hash"`
 	ObservedAt time.Time         `json:"observed_at"`
+
+	// FoldedOffset is the offset of the first log record this garden has not
+	// folded. Sequence orders frames; this names the history behind one, and
+	// it is what a reconnecting client asks to resume from.
+	FoldedOffset int64 `json:"folded_offset"`
 }
 
 // TelemetrySnapshot is what the performance panel reads. The counters here are
@@ -245,6 +250,13 @@ type TelemetrySnapshot struct {
 	SnapshotsDropped int64         `json:"snapshots_dropped"`
 	Uptime           time.Duration `json:"uptime"`
 	ObservedAt       time.Time     `json:"observed_at"`
+
+	// LogOffset is how many records the run's log holds. CommittedOffset is
+	// how far the projections group has durably folded, so it moves at
+	// snapshot cadence and trails LogOffset by design; the gap is what a
+	// restart would redeliver.
+	LogOffset       int64 `json:"log_offset"`
+	CommittedOffset int64 `json:"committed_offset"`
 }
 
 // RunSummary is the scorecard a finished run leaves behind.
@@ -874,15 +886,16 @@ func (r *liveRun) view() Run {
 
 func (r *liveRun) snapshot() GardenSnapshot {
 	return GardenSnapshot{
-		RunID:      r.req.RunID,
-		Sequence:   r.snapSeq,
-		Tick:       r.sim.Tick(),
-		Revision:   r.sim.Revision(),
-		State:      r.state,
-		Stats:      r.sim.Stats(),
-		Organisms:  r.sim.Organisms(),
-		Hash:       r.sim.Hash(),
-		ObservedAt: r.clock.Now(),
+		RunID:        r.req.RunID,
+		Sequence:     r.snapSeq,
+		Tick:         r.sim.Tick(),
+		Revision:     r.sim.Revision(),
+		State:        r.state,
+		Stats:        r.sim.Stats(),
+		Organisms:    r.sim.Organisms(),
+		Hash:         r.sim.Hash(),
+		ObservedAt:   r.clock.Now(),
+		FoldedOffset: r.sim.Folded(),
 	}
 }
 
@@ -901,6 +914,8 @@ func (r *liveRun) telemetry() TelemetrySnapshot {
 		SnapshotsDropped: r.snapshotsDropped,
 		Uptime:           r.updatedAt.Sub(r.startedAt),
 		ObservedAt:       r.clock.Now(),
+		LogOffset:        r.sim.Offset(),
+		CommittedOffset:  r.sim.Committed(),
 	}
 }
 
