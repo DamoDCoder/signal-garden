@@ -43,6 +43,7 @@ The event path is in-process by [0004](decisions/0004-event-spine-replaces-kafka
 - Business APIs are defined in protobuf and served internally over gRPC.
 - Public HTTP/JSON routes are generated from the same protobuf definitions with grpc-gateway or an equivalent generator.
 - WebSockets are a projection/read stream, not a second command API. Commands go through gRPC or generated REST.
+- Both transports serve one contract. The stream's frames are protobuf messages belonging to no rpc, marshalled exactly as the REST routes marshal theirs, so a client parses a garden the same way whichever delivered it — see [0010](decisions/0010-one-contract-for-both-transports.md). `internal/wire` holds the single translation both use.
 - The [Event Spine](https://github.com/DamoDCoder/event-spine) log is the durable event transport from M2. The in-memory bus it replaces was permitted only for M0.
 - One log per run, owned by that run's goroutine. The log takes no locks, so nothing may touch it from outside — see [0005](decisions/0005-one-log-per-run-owned-by-the-run-goroutine.md). Reconnect catch-up reads the log, so it is a command handed to the run rather than a second reader: the projection gateway asks, and the run's own goroutine answers.
 - A reconnecting client is handed its missed records and the snapshot standing at the end of them in one pass of that goroutine, which is what makes the handover exact rather than approximately current.

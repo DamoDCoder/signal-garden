@@ -2,9 +2,11 @@
 //
 // It is a read transport and not a second command API: nothing a client sends
 // changes a run, and every control path stays on gRPC or the generated REST
-// routes. That boundary is why the stream is not a gRPC method and carries no
-// protobuf — see docs/architecture.md, and docs/contracts.md for the frame
-// shapes.
+// routes. That boundary is why the stream is not a gRPC method — but it is
+// still the same contract. Frames are ProjectionFrame messages marshalled with
+// protojson, so a client parses a GardenSnapshot exactly as it would one from
+// GET /v1/runs/{run_id}/snapshot, with the same field names and the same types.
+// See docs/architecture.md and docs/contracts.md.
 //
 // The gateway owns connection state and nothing else. Run lifecycle, the
 // snapshot fan-out, and the catch-up read all belong to internal/engine, which
@@ -13,29 +15,31 @@
 package projection
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/damodbear/signal-garden/internal/engine"
 	"github.com/damodbear/signal-garden/internal/event"
 	"github.com/damodbear/signal-garden/internal/eventlog"
+	"github.com/damodbear/signal-garden/internal/wire"
 )
 
-// Frame types on the stream.
-const (
-	// FrameCatchup carries the records a reconnecting client missed. It
-	// arrives at most once, before any snapshot, and only when the client
-	// asked to resume.
-	FrameCatchup = "catchup"
-
-	// FrameSnapshot carries one projection frame.
-	FrameSnapshot = "snapshot"
-)
+// marshal produces the same JSON the REST gateway does.
+//
+// Field names come from the explicit json_name options in the contract rather
+// than from here, so the two transports cannot drift apart by configuration.
+// EmitUnpopulated does have to be set, because grpc-gateway's default marshaler
+// sets it: without it a zero-valued field is present over REST and missing over
+// the stream, and a client reading snapshot.sequence would get 0 from one
+// transport and undefined from the other at exactly the moment a run starts.
+// TestStreamAndGatewayAgreeOnTheWire is what keeps the two in step.
+var marshal = protojson.MarshalOptions{EmitUnpopulated: true}
 
 // Timeouts. A projection stream is paced by the run's tick interval, so these
 // are generous: the point is to notice a dead peer eventually, not to police
@@ -46,31 +50,6 @@ const (
 	writeWait   = 10 * time.Second
 	maxClientIn = 512
 )
-
-// Frame is one message on the stream. Exactly one of Catchup or Snapshot is
-// set, and Type says which — a client switches on Type rather than sniffing
-// which field is present.
-type Frame struct {
-	Type  string `json:"type"`
-	RunID string `json:"run_id"`
-
-	// Catchup is the records between the offset the client resumed from and
-	// the garden the next snapshot describes.
-	Catchup *Catchup `json:"catchup,omitempty"`
-
-	Snapshot *engine.GardenSnapshot `json:"snapshot,omitempty"`
-}
-
-// Catchup is the gap a reconnecting client missed, in log order.
-//
-// From and To bound it so a client can check the handover joins up with the
-// offset it asked for and the folded_offset of the snapshot that follows,
-// rather than trusting the length of a slice.
-type Catchup struct {
-	From   int64         `json:"from"`
-	To     int64         `json:"to"`
-	Events []event.Event `json:"events"`
-}
 
 // Handler serves the projection stream for one run.
 //
@@ -125,12 +104,7 @@ func Handler(reg *engine.Registry) http.Handler {
 		defer sub.Close()
 
 		if resuming {
-			frame := Frame{
-				Type:    FrameCatchup,
-				RunID:   runID,
-				Catchup: &Catchup{From: from, To: from + int64(len(missed)), Events: missed},
-			}
-			if err := write(conn, frame); err != nil {
+			if err := write(conn, wire.CatchupFrame(runID, from, missed)); err != nil {
 				return
 			}
 		}
@@ -190,7 +164,7 @@ func pump(conn *websocket.Conn, runID string, sub *engine.Subscription) {
 					websocket.FormatCloseMessage(websocket.CloseNormalClosure, "run finished"))
 				return
 			}
-			if err := write(conn, Frame{Type: FrameSnapshot, RunID: runID, Snapshot: &snap}); err != nil {
+			if err := write(conn, wire.SnapshotFrame(runID, snap)); err != nil {
 				return
 			}
 		case <-ping.C:
@@ -221,8 +195,8 @@ func drain(conn *websocket.Conn) {
 	}
 }
 
-func write(conn *websocket.Conn, frame Frame) error {
-	payload, err := json.Marshal(frame)
+func write(conn *websocket.Conn, frame proto.Message) error {
+	payload, err := marshal.Marshal(frame)
 	if err != nil {
 		return err
 	}

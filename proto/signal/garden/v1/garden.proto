@@ -5,8 +5,16 @@
 // method shapes match internal/engine, which owns run lifecycle. Generated code
 // is never hand-edited.
 //
-// WebSocket projection is deliberately absent. It is a read stream rather than
-// a second command API, so it is not a gRPC method, per docs/architecture.md.
+// The WebSocket projection stream has messages here but no rpc. It is a read
+// stream rather than a second command API, so it is not a gRPC method, per
+// docs/architecture.md — while still being one contract, so a client parses a
+// GardenSnapshot the same way whichever transport delivered it.
+//
+// Every field carries an explicit json_name. The JSON these messages produce is
+// the public shape, and leaving it to the marshaler's default would mean the
+// wire names lived in a Go flag rather than here. Note that int64 fields encode
+// as JSON *strings*: that is the protobuf JSON mapping, not a choice, and it is
+// uniform across both transports so nothing has to guess.
 syntax = "proto3";
 
 package signal.garden.v1;
@@ -34,60 +42,60 @@ enum RunState {
 // meaningless while the processor drains inside the tick, so they are not
 // reserved here; new controls take new field numbers when they become real.
 message Controls {
-  int32 events_per_tick = 1;
-  int32 rain_weight = 2;
-  int32 growth_weight = 3;
-  int32 pest_weight = 4;
+  int32 events_per_tick = 1 [json_name = "events_per_tick"];
+  int32 rain_weight = 2 [json_name = "rain_weight"];
+  int32 growth_weight = 3 [json_name = "growth_weight"];
+  int32 pest_weight = 4 [json_name = "pest_weight"];
 }
 
 // Run is the lifecycle view of a simulation.
 message Run {
-  string run_id = 1;
-  int64 seed = 2;
-  int32 organisms = 3;
-  RunState state = 4;
+  string run_id = 1 [json_name = "run_id"];
+  int64 seed = 2 [json_name = "seed"];
+  int32 organisms = 3 [json_name = "organisms"];
+  RunState state = 4 [json_name = "state"];
 
   // tick counts completed simulation ticks. It is simulation time, and it is
   // the only clock replay reproduces.
-  int64 tick = 5;
+  int64 tick = 5 [json_name = "tick"];
 
   // max_ticks finishes the run automatically once reached. Zero runs until
   // FinishRun is called.
-  int64 max_ticks = 6;
+  int64 max_ticks = 6 [json_name = "max_ticks"];
 
   // tick_interval is the wall-clock pace of the run. It affects how fast a
   // player sees the garden change, never where the garden ends up.
-  google.protobuf.Duration tick_interval = 7;
+  google.protobuf.Duration tick_interval = 7 [json_name = "tick_interval"];
 
-  Controls controls = 8;
-  int32 revision = 9;
+  Controls controls = 8 [json_name = "controls"];
+  int32 revision = 9 [json_name = "revision"];
 
-  google.protobuf.Timestamp started_at = 10;
-  google.protobuf.Timestamp updated_at = 11;
-  google.protobuf.Timestamp finished_at = 12;
+  google.protobuf.Timestamp started_at = 10 [json_name = "started_at"];
+  google.protobuf.Timestamp updated_at = 11 [json_name = "updated_at"];
+  google.protobuf.Timestamp finished_at = 12 [json_name = "finished_at"];
 
   // failure records why a run ended early. Empty for runs that ended normally.
-  string failure = 13;
+  string failure = 13 [json_name = "failure"];
 
-  int32 schema_version = 14;
+  int32 schema_version = 14 [json_name = "schema_version"];
 }
 
 // Organism is one plant in the garden.
 message Organism {
-  string id = 1;
-  int32 moisture = 2;
-  int32 health = 3;
-  int32 stage = 4;
+  string id = 1 [json_name = "id"];
+  int32 moisture = 2 [json_name = "moisture"];
+  int32 health = 3 [json_name = "health"];
+  int32 stage = 4 [json_name = "stage"];
 }
 
 // GardenStats summarizes garden condition without listing every organism.
 message GardenStats {
-  int32 organisms = 1;
-  int32 alive = 2;
-  double average_moisture = 3;
-  double average_health = 4;
-  double average_stage = 5;
-  int32 total_stage = 6;
+  int32 organisms = 1 [json_name = "organisms"];
+  int32 alive = 2 [json_name = "alive"];
+  double average_moisture = 3 [json_name = "average_moisture"];
+  double average_health = 4 [json_name = "average_health"];
+  double average_stage = 5 [json_name = "average_stage"];
+  int32 total_stage = 6 [json_name = "total_stage"];
 }
 
 // GardenSnapshot is one projection frame: the garden after a given tick.
@@ -96,131 +104,205 @@ message GardenStats {
 // reconciliation: a reconnecting client compares its last sequence against the
 // one it receives to learn how far behind it fell.
 message GardenSnapshot {
-  string run_id = 1;
-  int64 sequence = 2;
-  int64 tick = 3;
-  int32 revision = 4;
-  RunState state = 5;
-  GardenStats stats = 6;
-  repeated Organism organisms = 7;
+  string run_id = 1 [json_name = "run_id"];
+  int64 sequence = 2 [json_name = "sequence"];
+  int64 tick = 3 [json_name = "tick"];
+  int32 revision = 4 [json_name = "revision"];
+  RunState state = 5 [json_name = "state"];
+  GardenStats stats = 6 [json_name = "stats"];
+  repeated Organism organisms = 7 [json_name = "organisms"];
 
   // hash fingerprints garden state. Two runs with the same seed and the same
   // control ticks produce the same hash, which is how replay is verified.
-  string hash = 8;
+  string hash = 8 [json_name = "hash"];
 
-  google.protobuf.Timestamp observed_at = 9;
-  int32 schema_version = 10;
+  google.protobuf.Timestamp observed_at = 9 [json_name = "observed_at"];
+  int32 schema_version = 10 [json_name = "schema_version"];
 
   // folded_offset is the offset of the first log record this garden has not
   // folded, so it is the position a reconnecting client asks to resume from.
   // Sequence orders frames; this names the history behind one.
-  int64 folded_offset = 11;
+  int64 folded_offset = 11 [json_name = "folded_offset"];
 }
 
 // ProcessorStats counts what the processor did with the events it received.
 message ProcessorStats {
-  int64 received = 1;
-  int64 applied = 2;
-  int64 no_effect = 3;
-  int64 duplicates = 4;
-  int64 rejected = 5;
-  int64 unknown_entity = 6;
-  map<string, int64> by_type = 7;
+  int64 received = 1 [json_name = "received"];
+  int64 applied = 2 [json_name = "applied"];
+  int64 no_effect = 3 [json_name = "no_effect"];
+  int64 duplicates = 4 [json_name = "duplicates"];
+  int64 rejected = 5 [json_name = "rejected"];
+  int64 unknown_entity = 6 [json_name = "unknown_entity"];
+  map<string, int64> by_type = 7 [json_name = "by_type"];
 }
 
 // TelemetrySnapshot is what the performance panel reads. M3 turns these
 // counters into histograms; here they are plain totals.
 message TelemetrySnapshot {
-  string run_id = 1;
-  RunState state = 2;
-  int64 tick = 3;
-  int32 revision = 4;
-  google.protobuf.Duration tick_interval = 5;
-  int64 published = 6;
-  ProcessorStats processor = 7;
+  string run_id = 1 [json_name = "run_id"];
+  RunState state = 2 [json_name = "state"];
+  int64 tick = 3 [json_name = "tick"];
+  int32 revision = 4 [json_name = "revision"];
+  google.protobuf.Duration tick_interval = 5 [json_name = "tick_interval"];
+  int64 published = 6 [json_name = "published"];
+  ProcessorStats processor = 7 [json_name = "processor"];
 
   // pending is events published but not yet processed. It is zero while the
   // processor drains inside the tick, and is consumer lag from M2.
-  int64 pending = 8;
+  int64 pending = 8 [json_name = "pending"];
 
-  int32 subscribers = 9;
-  int64 snapshots_sent = 10;
-  int64 snapshots_dropped = 11;
-  google.protobuf.Duration uptime = 12;
-  google.protobuf.Timestamp observed_at = 13;
-  int32 schema_version = 14;
+  int32 subscribers = 9 [json_name = "subscribers"];
+  int64 snapshots_sent = 10 [json_name = "snapshots_sent"];
+  int64 snapshots_dropped = 11 [json_name = "snapshots_dropped"];
+  google.protobuf.Duration uptime = 12 [json_name = "uptime"];
+  google.protobuf.Timestamp observed_at = 13 [json_name = "observed_at"];
+  int32 schema_version = 14 [json_name = "schema_version"];
 
   // log_offset is the offset the run's log will assign to the next record,
   // which is also how many records it holds.
-  int64 log_offset = 15;
+  int64 log_offset = 15 [json_name = "log_offset"];
 
   // committed_offset is how far the projections group has durably folded: the
   // position a restart resumes from. It moves at snapshot cadence rather than
   // per tick, so it trails log_offset by design.
-  int64 committed_offset = 16;
+  int64 committed_offset = 16 [json_name = "committed_offset"];
+}
+
+// EventPayload carries typed event data. Amount is the magnitude for rain,
+// growth, and pest events; revision identifies a control or run-state change.
+message EventPayload {
+  int32 amount = 1 [json_name = "amount"];
+  int32 revision = 2 [json_name = "revision"];
+}
+
+// Event is the durable envelope from docs/events.md.
+//
+// event_type is a string rather than an enum because those values are declared
+// wire strings in events.md: a build that met an event type it did not know
+// would decode an enum to UNSPECIFIED and lose which one it was, and a client
+// that cannot render an event still has to be able to name it.
+//
+// recorded_at is deliberately absent. Wall-clock time is not part of the
+// simulation and is never written to the log, so a record read back has none to
+// report — see docs/events.md and internal/event/codec.go.
+message Event {
+  string event_id = 1 [json_name = "event_id"];
+  string event_type = 2 [json_name = "event_type"];
+  int32 schema_version = 3 [json_name = "schema_version"];
+  string run_id = 4 [json_name = "run_id"];
+  string entity_id = 5 [json_name = "entity_id"];
+  string partition_key = 6 [json_name = "partition_key"];
+  int64 sequence = 7 [json_name = "sequence"];
+
+  // occurred_at is simulation time — the tick that produced the event. It may
+  // influence outcomes, which is why replay reproduces it.
+  int64 occurred_at = 8 [json_name = "occurred_at"];
+
+  // attempt counts deliveries, starting at 1. A redelivery is the same event
+  // with a higher attempt, and the processor deduplicates on the idempotency
+  // key rather than on this.
+  int32 attempt = 9 [json_name = "attempt"];
+
+  EventPayload payload = 10 [json_name = "payload"];
+}
+
+// FrameType says which body a projection frame carries. A client switches on
+// this rather than sniffing which field is present.
+enum FrameType {
+  FRAME_TYPE_UNSPECIFIED = 0;
+  FRAME_TYPE_SNAPSHOT = 1;
+  FRAME_TYPE_CATCHUP = 2;
+}
+
+// Catchup is the gap a reconnecting client missed, in log order.
+//
+// from and to bound it so a client can check the handover joins up with the
+// offset it asked for and the folded_offset of the snapshot that follows,
+// rather than trusting the length of a list. to always equals that snapshot's
+// folded_offset; anything else is a record the client never sees or one it
+// sees twice.
+message Catchup {
+  int64 from = 1 [json_name = "from"];
+  int64 to = 2 [json_name = "to"];
+  repeated Event events = 3 [json_name = "events"];
+}
+
+// ProjectionFrame is one message on the WebSocket projection stream.
+//
+// It belongs to no rpc: the stream is a read transport served directly by the
+// daemon, and putting its frames here buys one contract rather than a second
+// definition of a garden that could drift from this one.
+message ProjectionFrame {
+  FrameType type = 1 [json_name = "type"];
+  string run_id = 2 [json_name = "run_id"];
+
+  // Exactly one of these is set, and type says which. A catchup frame arrives
+  // at most once, first, and only for a client that asked to resume.
+  Catchup catchup = 3 [json_name = "catchup"];
+  GardenSnapshot snapshot = 4 [json_name = "snapshot"];
 }
 
 // ControlRevision is the receipt for an accepted control update.
 message ControlRevision {
-  string run_id = 1;
-  int32 revision = 2;
-  Controls controls = 3;
+  string run_id = 1 [json_name = "run_id"];
+  int32 revision = 2 [json_name = "revision"];
+  Controls controls = 3 [json_name = "controls"];
 
   // effective_tick is the tick at which the producer starts obeying these
   // controls. A change accepted partway through a tick lands on the next
   // boundary, so this number is what replay needs; acceptance wall-clock time
   // is not part of the simulation.
-  int64 effective_tick = 4;
+  int64 effective_tick = 4 [json_name = "effective_tick"];
 }
 
 // RunSummary is the scorecard a finished run leaves behind.
 message RunSummary {
-  Run run = 1;
-  GardenSnapshot snapshot = 2;
-  TelemetrySnapshot telemetry = 3;
+  Run run = 1 [json_name = "run"];
+  GardenSnapshot snapshot = 2 [json_name = "snapshot"];
+  TelemetrySnapshot telemetry = 3 [json_name = "telemetry"];
 }
 
 message StartRunRequest {
   // run_id is optional. The service generates one when it is empty.
-  string run_id = 1;
-  int64 seed = 2;
-  int32 organisms = 3;
-  Controls controls = 4;
-  google.protobuf.Duration tick_interval = 5;
-  int64 max_ticks = 6;
+  string run_id = 1 [json_name = "run_id"];
+  int64 seed = 2 [json_name = "seed"];
+  int32 organisms = 3 [json_name = "organisms"];
+  Controls controls = 4 [json_name = "controls"];
+  google.protobuf.Duration tick_interval = 5 [json_name = "tick_interval"];
+  int64 max_ticks = 6 [json_name = "max_ticks"];
 
   // duplicate_every republishes every Nth event of a tick, which makes the
   // idempotency demo a control rather than a test-only code path.
-  int32 duplicate_every = 7;
+  int32 duplicate_every = 7 [json_name = "duplicate_every"];
 }
 
 message GetRunRequest {
-  string run_id = 1;
+  string run_id = 1 [json_name = "run_id"];
 }
 
 message UpdateControlsRequest {
-  string run_id = 1;
-  Controls controls = 2;
+  string run_id = 1 [json_name = "run_id"];
+  Controls controls = 2 [json_name = "controls"];
 }
 
 // PauseRunRequest carries the desired paused state rather than only pausing,
 // so resuming is the same method with paused=false. A separate ResumeRun would
 // be a second way to say the same thing.
 message PauseRunRequest {
-  string run_id = 1;
-  bool paused = 2;
+  string run_id = 1 [json_name = "run_id"];
+  bool paused = 2 [json_name = "paused"];
 }
 
 message FinishRunRequest {
-  string run_id = 1;
+  string run_id = 1 [json_name = "run_id"];
 }
 
 message GetSnapshotRequest {
-  string run_id = 1;
+  string run_id = 1 [json_name = "run_id"];
 }
 
 message GetTelemetryRequest {
-  string run_id = 1;
+  string run_id = 1 [json_name = "run_id"];
 }
 
 // GardenService is the control and query surface. It is served internally over

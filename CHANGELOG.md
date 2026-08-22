@@ -6,7 +6,18 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 ## [Unreleased]
 
+### Added
+
+- Cross-origin support, controlled by `SIGNAL_GARDEN_CORS_ORIGIN` and defaulting to reflecting whatever origin asked. The browser client is a separate origin, and WebSockets do not preflight — so without this the stream works while every REST call fails, which reads as "the garden streams but no button works". Credentials are never allowed, which is what keeps a permissive origin from being a hole.
+- `Event`, `EventPayload`, `Catchup`, `FrameType`, and `ProjectionFrame` in `garden.proto`, belonging to no rpc. The projection stream stays a read transport rather than a gRPC method while putting the same contract on the wire.
+- `internal/wire`: the one translation from engine types to protobuf messages, shared by the gRPC service and the projection gateway. Two mappings would be two definitions of a garden, free to drift until a client noticed.
+
 ### Changed
+
+- **The two transports now produce identical JSON.** Previously a garden reached a client as `{"runId": …, "tick": "45"}` over REST and `{"run_id": …, "tick": 45}` over the stream — different casing, and `tick` was a string from one and a number from the other. `snapshot.sequence` was `"0"` over REST and `undefined` over the stream at the moment a run started. See [0010](docs/decisions/0010-one-contract-for-both-transports.md).
+- Every field in the contract carries an explicit `json_name`. The JSON these messages produce is the public shape, so it is written in the `.proto` rather than left to a marshaller option in Go. The wire is snake_case throughout, matching the envelope `docs/events.md` already documented.
+- int64 fields are JSON strings on both transports. That is the protobuf JSON mapping rather than a choice — JSON numbers lose precision above 2^53 — so the fix is uniformity: a client parses them once at the edge and never has to know which transport a value arrived on.
+- `internal/projection` no longer defines its own `Frame` and `Catchup` Go types, and marshals with `EmitUnpopulated` to match grpc-gateway's default. `TestStreamAndGatewayAgreeOnTheWire` resolves the gateway's marshaller the way the running gateway does and compares the bytes; turning the option off fails it with `sequence` and every `moisture: 0` missing from the stream side.
 
 - The Makefile is now [Taskfile.yml](Taskfile.yml), run with [go-task](https://taskfile.dev). Every target kept its name and its behaviour — `task check` is `make check` — and `task proto` regenerates byte-identical output from the same pinned plugins. The one gain worth noting is `--`: `task run -- -seed 42 -ticks 40` reaches the binary, where the Makefile needed a bare `go run` for anything non-default.
 - `docs/local-development.md` no longer lists commands. `task --list` does, from each task's own description, so the list cannot drift from what actually runs. The doc says which commands are still missing and which milestone brings them.

@@ -52,6 +52,7 @@ func realMain() error {
 		grpcAddr     = flagString("SIGNAL_GARDEN_GRPC_ADDR", ":9090")
 		httpAddr     = flagString("SIGNAL_GARDEN_HTTP_ADDR", ":8080")
 		dataDir      = flagString("SIGNAL_GARDEN_DATA_DIR", "data")
+		corsOrigin   = flagString("SIGNAL_GARDEN_CORS_ORIGIN", "*")
 		tickInterval = flagDuration("SIGNAL_GARDEN_TICK_INTERVAL", engine.DefaultTickInterval)
 	)
 	corrupt, err := corruptPolicy(flagString("SIGNAL_GARDEN_ON_CORRUPT", "refuse"))
@@ -69,6 +70,11 @@ func realMain() error {
 	)
 	defer runs.Close()
 	fmt.Fprintf(os.Stderr, "run history under %s, on corrupt: %s\n", dataDir, corrupt)
+	if corsOrigin == "" {
+		fmt.Fprintln(os.Stderr, "cross-origin requests refused")
+	} else {
+		fmt.Fprintf(os.Stderr, "cross-origin requests allowed from %s\n", corsOrigin)
+	}
 
 	grpcServer := grpc.NewServer()
 	gardenv1.RegisterGardenServiceServer(grpcServer, service.New(runs))
@@ -104,7 +110,7 @@ func realMain() error {
 
 	httpServer := &http.Server{
 		Addr:              httpAddr,
-		Handler:           routes(gateway, projection.Handler(runs), &ready),
+		Handler:           withCORS(routes(gateway, projection.Handler(runs), &ready), corsOrigin),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {

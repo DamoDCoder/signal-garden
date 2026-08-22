@@ -60,14 +60,19 @@ GET /v1/runs/{run_id}/stream?from=N   a returning client, resuming at log offset
 
 The stream is a read transport: nothing a client sends over it changes a run, and the daemon discards client messages other than the pongs that keep the socket alive. It is served from the daemon rather than the gateway, and it carries no protobuf — it is not a gRPC method, per [architecture.md](architecture.md).
 
-Frames are JSON text messages using the field names in [events.md](events.md):
+Frames are `ProjectionFrame` messages, marshalled exactly as the REST routes marshal theirs, so a client parses a `GardenSnapshot` the same way whichever transport delivered it:
 
 ```json
-{"type": "snapshot", "run_id": "demo", "snapshot": { ... }}
-{"type": "catchup",  "run_id": "demo", "catchup": {"from": 246, "to": 852, "events": [ ... ]}}
+{"type": "FRAME_TYPE_SNAPSHOT", "run_id": "demo", "catchup": null, "snapshot": { ... }}
+{"type": "FRAME_TYPE_CATCHUP",  "run_id": "demo", "snapshot": null,
+ "catchup": {"from": "246", "to": "852", "events": [ ... ]}}
 ```
 
-A `catchup` frame arrives at most once, first, and only for a client that passed `from`. It carries the records between the offset that client resumed at and the garden the snapshot immediately after it describes, so `catchup.to` always equals the next frame's `folded_offset`. That equality is the handover: anything else is a record the client never sees or one it sees twice.
+`ProjectionFrame` belongs to no rpc. The stream is a read transport served directly by the daemon, and the messages are here so there is one definition of a garden rather than two that can drift.
+
+A catch-up frame arrives at most once, first, and only for a client that passed `from`. It carries the records between the offset that client resumed at and the garden the snapshot immediately after it describes, so `catchup.to` always equals the next frame's `folded_offset`. That equality is the handover: anything else is a record the client never sees or one it sees twice.
+
+Catch-up events carry no `recorded_at`. Wall-clock time is never written to the log, so a record read back has none to report — see [events.md](events.md).
 
 Rejections happen before the upgrade, so they are ordinary HTTP statuses rather than a socket that opens and immediately closes:
 
@@ -80,6 +85,20 @@ Rejections happen before the upgrade, so they are ordinary HTTP statuses rather 
 An offset past the tail is refused rather than answered with an empty catch-up. A client holding an offset this run never reached is confused about which run it is watching, and an empty frame would let it stay that way.
 
 A finished run sends its final frame and then a normal close, so a client can tell a completed run from a dropped connection.
+
+## Cross-Origin Requests
+
+The browser client runs on its own development server, so it is a different origin from the daemon. `SIGNAL_GARDEN_CORS_ORIGIN` controls what is allowed:
+
+| Value | Meaning |
+| --- | --- |
+| `*` (default) | Reflect whatever origin asked |
+| a specific origin | Allow only that one |
+| empty | Add no CORS headers at all |
+
+Credentials are never allowed, which is what keeps reflecting an arbitrary origin from being a hole: a browser attaches no cookies to these requests, so a hostile page learns nothing it could not learn by connecting to the port itself. This daemon serves one machine and holds no credentials; the public gateway that would authenticate and rate-limit it is a deployment concern.
+
+WebSockets do not preflight, so a missing CORS policy would leave the stream working while every REST call failed — which reads as "the garden streams but no button works". That failure mode is the reason the middleware exists.
 
 Telemetry does not stream yet. The performance panel polls `GET /v1/runs/{run_id}/telemetry`, and folding it into the stream is M3's, when the counters become histograms worth pushing.
 
@@ -96,6 +115,16 @@ Three offsets cross the wire, and they mean different things:
 `committed_offset` moves at snapshot cadence rather than per tick, because nothing commits without first writing the state built from those records. The gap between it and `log_offset` is what a restart would redeliver, and idempotent processing is what makes that harmless.
 
 `sequence` orders frames within a connection; `folded_offset` names the history behind one. They are not interchangeable: sequence counts frames the run emitted, and a run emits none while nobody is watching.
+
+## JSON Conventions
+
+The same rules hold on the REST routes and on the projection stream, because both marshal the same messages with the same options. [0010](decisions/0010-one-contract-for-both-transports.md) records why.
+
+- **Field names are snake_case**, from an explicit `json_name` on every field in the contract. The wire shape is written down in the `.proto` rather than decided by a marshaller option in Go.
+- **int64 fields are JSON strings** — `"tick": "45"`, not `45`. This is the protobuf JSON mapping rather than a choice: JSON numbers lose precision above 2^53. It applies to `tick`, `sequence`, `seed`, and every offset, on both transports, so a client parses them once at the edge and never has to know which transport a value came from.
+- **Enums are their full names**: `"state": "RUN_STATE_RUNNING"`, `"type": "FRAME_TYPE_SNAPSHOT"`.
+- **Unset fields are present**, as `0`, `""`, or `null`. A message field that is not set serialises as `null` rather than being omitted, so `catchup` is `null` on a snapshot frame.
+- **Timestamps are RFC 3339**; durations are seconds with a suffix, `"0.200s"`.
 
 ## Compatibility Rules
 

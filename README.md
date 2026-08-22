@@ -64,9 +64,9 @@ ws://localhost:8080/v1/runs/demo/stream          start at the garden as it is no
 ws://localhost:8080/v1/runs/demo/stream?from=246 come back at log offset 246
 ```
 
-A frame per tick, as JSON. A client that passed `from` gets one `catchup` frame first, carrying the records it missed; the snapshot right behind it stands exactly where those records end, so the handover has neither a gap nor a repeat. Folding the catch-up records into an empty garden reaches the hash of that snapshot, which is what the tests assert rather than trusting a count.
+A frame per tick. A client that passed `from` gets one catch-up frame first, carrying the records it missed; the snapshot right behind it stands exactly where those records end, so the handover has neither a gap nor a repeat. Folding the catch-up records into an empty garden reaches the hash of that snapshot, which is what the tests assert rather than trusting a count.
 
-The stream is read-only — nothing sent over it changes a run — and it is served from the daemon rather than the gateway, because it is not a gRPC method. See [docs/contracts.md](docs/contracts.md) for the frame shapes and rejection codes, and [0009](docs/decisions/0009-catch-up-is-a-command-to-the-run-not-a-second-reader.md) for why catch-up runs on the run's own goroutine.
+Frames are `ProjectionFrame` messages from the same contract the REST routes use, marshalled the same way, so a `GardenSnapshot` parses identically whichever transport delivered it — [0010](docs/decisions/0010-one-contract-for-both-transports.md) says why that took a decision. The stream is read-only and served from the daemon rather than the gateway, because it is not a gRPC method. See [docs/contracts.md](docs/contracts.md) for frame shapes, JSON conventions, and rejection codes, and [0009](docs/decisions/0009-catch-up-is-a-command-to-the-run-not-a-second-reader.md) for why catch-up runs on the run's own goroutine.
 
 ### Run History
 
@@ -76,6 +76,7 @@ The daemon keeps each run's events in an append-only log under `data/runs/<run_i
 | --- | --- | --- |
 | `SIGNAL_GARDEN_DATA_DIR` | `data` | Where run histories live |
 | `SIGNAL_GARDEN_ON_CORRUPT` | `refuse` | `refuse` or `continue` when a log opens with bytes the disk got wrong |
+| `SIGNAL_GARDEN_CORS_ORIGIN` | `*` | Origin allowed to call the API from a browser; empty disables CORS |
 
 A run ID is taken by history as well as by a live run, so restarting the daemon and starting a run picks the next free ID rather than appending a second run's events into the first one's log. Asking for a used ID explicitly returns `409`.
 
@@ -109,7 +110,11 @@ The second preserves `SnapshotSchemaVersion` compatibility; the first is simpler
 
 ### 2. M1's unfinished half
 
-React control surface and Docker Compose. The stream they would both use is now there, and `GET /v1/runs/{run_id}/stream` is the only thing a browser needs beyond the REST routes.
+React control surface and Docker Compose, now in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden). This repository owns the contract: `proto/signal/garden/v1/garden.proto` is where a garden is defined, and the client generates from it rather than describing one of its own.
+
+What that client needs and does not have yet is a **generated TypeScript view of the contract**. The options are an OpenAPI spec from `protoc-gen-openapiv2` (grpc-gateway ships it, and the REST routes are already generated from these annotations) or generating from the `.proto` directly with `protoc-gen-es` or ts-proto. Either way the shapes are settled — snake_case, int64 as strings, both transports identical — so this is a packaging decision rather than a design one.
+
+Compose spans two repositories now, so which one owns the compose file is still open.
 
 ### 3. Catch-up cost under load
 
