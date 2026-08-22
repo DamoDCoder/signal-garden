@@ -6,6 +6,12 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.5.0] — 2026-08-22
+
+M2's last exit criterion: a client can drop, miss ticks, and come back without a gap. The projection stream it needed was M1's last outstanding transport, so M1 is down to the browser.
+
 ### Added
 
 - `internal/projection`: the WebSocket projection stream at `GET /v1/runs/{run_id}/stream`, and reconnect catch-up at `?from=<offset>`. It is a read transport — client messages are discarded — and it carries no protobuf, because it is not a gRPC method. Rejections happen before the upgrade, so an unknown run is a 404 a fetch can read rather than a socket that opens and immediately closes.
