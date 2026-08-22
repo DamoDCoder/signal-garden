@@ -13,15 +13,15 @@ Durability arrives at M2 as the [Event Spine](https://github.com/DamoDCoder/even
 ## Quick Start
 
 ```sh
-make test    # domain, replay determinism, and idempotency tests
-make run     # run a garden to completion and print the scorecard
-make live    # run on a clock, a frame per tick, steered while it runs
+task test    # domain, replay determinism, and idempotency tests
+task run     # run a garden to completion and print the scorecard
+task live    # run on a clock, a frame per tick, steered while it runs
 ```
 
-`make run` accepts the same flags as the binary:
+Tasks are [go-task](https://taskfile.dev); `task --list` is the index. Flags after `--` reach the binary:
 
 ```sh
-go run ./cmd/signalgarden -seed 42 -ticks 40 -rate 6 -rain 3 -growth 2 -pest 1
+task run -- -seed 42 -ticks 40 -rate 6 -rain 3 -growth 2 -pest 1
 ```
 
 Two runs with the same seed, tick count, and controls always produce the same final garden. That property is the point of M0, and it is what the replay tests assert.
@@ -39,7 +39,7 @@ The same controls applied at the same ticks reach the same garden in either mode
 ## Server
 
 ```sh
-make serve   # gRPC on :9090, generated REST gateway on :8080
+task serve   # gRPC on :9090, generated REST gateway on :8080
 ```
 
 The REST routes are generated from [proto/signal/garden/v1/garden.proto](proto/signal/garden/v1/garden.proto); see [docs/contracts.md](docs/contracts.md) for the full surface and its error codes.
@@ -55,7 +55,7 @@ curl localhost:8080/v1/runs/run-0001/snapshot
 curl localhost:8080/v1/runs/run-0001/telemetry
 ```
 
-`GET /healthz` and `GET /readyz` are the liveness and readiness checks. Regenerate the contract with `make proto`, which needs protoc; building and testing do not.
+`GET /healthz` and `GET /readyz` are the liveness and readiness checks. Regenerate the contract with `task proto`, which needs protoc; building and testing do not.
 
 ### Projection Stream
 
@@ -90,7 +90,7 @@ Replay reaches the same snapshot hash the live run ended on, in a different proc
 
 ## Picking Up From Here
 
-Branch `feat/adopt-event-spine`, tags `v0.1.0` through `v0.4.0`, no remote configured yet. Everything passes under `make check`.
+Branch `feat/adopt-event-spine`, tags `v0.1.0` through `v0.4.0`, no remote configured yet. Everything passes under `task check`.
 
 **M2's exit criteria are met.** Duplicate delivery ✓, reconnect catch-up ✓, replay determinism on a chain ✓, crash survival ✓, keys and retention documented ✓. The projection stream that catch-up needed was M1's last outstanding transport, so M1 is down to the React surface and Compose.
 

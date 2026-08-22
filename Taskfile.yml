@@ -1,0 +1,108 @@
+# Task runner for Signal Garden. Run `task --list` to see what is here.
+#
+# The dev, reset, load, and replay tasks in docs/local-development.md arrive
+# with the milestone that makes them meaningful, rather than sitting here
+# failing.
+version: '3'
+
+vars:
+  MODULE: github.com/damodbear/signal-garden
+  TOOLS: bin/tools
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  tools:
+    desc: Build the pinned code generators into bin/tools
+    cmds:
+      - mkdir -p {{.TOOLS}}
+      - go build -o {{.TOOLS}}/ tool
+
+  # Plugin versions are pinned by the tool directives in go.mod, so generation
+  # is reproducible from a clean checkout. protoc itself and the vendored
+  # googleapis protos in third_party/ are the only inputs from outside the
+  # module.
+  proto:
+    desc: Generate Go gRPC and REST gateway code from proto/
+    deps: [tools]
+    vars:
+      PROTO_FILES:
+        sh: find proto -name '*.proto'
+    cmds:
+      - >-
+        protoc -I proto -I third_party
+        --plugin=protoc-gen-go={{.TOOLS}}/protoc-gen-go
+        --plugin=protoc-gen-go-grpc={{.TOOLS}}/protoc-gen-go-grpc
+        --plugin=protoc-gen-grpc-gateway={{.TOOLS}}/protoc-gen-grpc-gateway
+        --go_out=. --go_opt=module={{.MODULE}}
+        --go-grpc_out=. --go-grpc_opt=module={{.MODULE}}
+        --grpc-gateway_out=. --grpc-gateway_opt=module={{.MODULE}}
+        {{.PROTO_FILES}}
+
+  test:
+    desc: Run unit tests
+    cmds:
+      - go test ./...
+
+  test-race:
+    desc: Run unit tests under the race detector
+    cmds:
+      - go test -race ./...
+
+  run:
+    desc: Run a simulation with default controls
+    cmds:
+      - go run ./cmd/signalgarden {{.CLI_ARGS}}
+
+  live:
+    desc: 'Run live: a frame per tick, steered by typed commands'
+    cmds:
+      - go run ./cmd/signalgarden -live -ticks 0 -interval 300ms {{.CLI_ARGS}}
+
+  serve:
+    desc: Serve gRPC on :9090 and the generated REST gateway on :8080
+    cmds:
+      - go run ./cmd/signalgardend
+
+  demo:
+    desc: Run three contrasting scenarios back to back
+    cmds:
+      - echo "=== balanced ==="
+      - go run ./cmd/signalgarden -seed 42 -ticks 40
+      - echo "=== pest storm ==="
+      - go run ./cmd/signalgarden -seed 42 -ticks 40 -rate 20 -rain 1 -growth 1 -pest 4
+      - echo "=== pest storm, every event delivered twice ==="
+      - go run ./cmd/signalgarden -seed 42 -ticks 40 -rate 20 -rain 1 -growth 1 -pest 4 -duplicate-every 1
+    silent: true
+
+  build:
+    desc: Build the CLI and the server into bin/
+    cmds:
+      - go build -o bin/signalgarden ./cmd/signalgarden
+      - go build -o bin/signalgardend ./cmd/signalgardend
+
+  fmt:
+    desc: Format all Go source
+    cmds:
+      - go fmt ./...
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  check:
+    desc: Format, vet, and test with the race detector
+    cmds:
+      - task: fmt
+      - task: vet
+      - task: test-race
+
+  clean:
+    desc: Remove build output
+    cmds:
+      - rm -rf bin/

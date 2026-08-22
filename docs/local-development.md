@@ -9,27 +9,34 @@
 | M2 | Go only; the event log is a library and needs a data directory, plus snapshot storage and replay tooling |
 | M3 | OpenTelemetry collector, Prometheus-compatible metrics, load generator |
 
-## Expected Commands
+## Task Runner
 
-The standalone repository should provide a Makefile or equivalent task runner with commands like:
+Commands live in [Taskfile.yml](../Taskfile.yml) and run with [go-task](https://taskfile.dev):
 
-```text
-make proto       # generate Go gRPC and REST gateway code (M1+)
-make test        # unit and contract tests
-make test-integration
-make dev         # start the local application stack
-make reset       # remove local state and restart fixtures
-make load        # run a deterministic event burst
-make replay      # replay a fixture event log
+```sh
+brew install go-task        # or: go install github.com/go-task/task/v3/cmd/task@latest
+task --list                 # the index; running bare `task` prints the same
 ```
 
-M0 needed only `make test` and `make run`. The M1 slices added `make live` (a clock-paced run driven from the terminal), `make proto` (regenerate from `proto/`), and `make serve` (gRPC on `:9090`, generated REST on `:8080`). `make dev` arrives with Docker Compose; the rest arrive with the milestone that makes them meaningful.
+`task --list` is the contract rather than this document — a task's own `desc` is what a fresh clone reads, and a list here would drift out of date the first time one changes.
 
-`make proto` needs protoc on the PATH. The plugins are pinned by the tool directives in `go.mod` and built into `bin/tools`, and the googleapis annotation protos are vendored in `third_party/`, so generation runs offline. Generated code is committed, so building and testing need none of this.
+What exists today: `test`, `test-race`, `check`, `run`, `live`, `serve`, `demo`, `build`, `fmt`, `vet`, `proto`, `tools`, and `clean`.
+
+Arguments after `--` reach the underlying binary, so a one-off run needs no task of its own:
+
+```sh
+task run -- -seed 42 -ticks 40 -pest 4
+task live -- -run demo -data ./data
+```
+
+Still to come, each with the milestone that makes it meaningful: `dev` (start the local stack) and `reset` (drop local state) with Docker Compose, and `load` (a deterministic event burst) with M3's failure lab. `replay` is deliberately not a task — it takes a run ID and a data directory that only the person running it knows, so it stays `go run ./cmd/signalgarden -replay -run <id> -data <dir>`.
+
+`task proto` needs protoc on the PATH. The plugins are pinned by the tool directives in `go.mod` and built into `bin/tools`, and the googleapis annotation protos are vendored in `third_party/`, so generation runs offline. Generated code is committed, so building and testing need none of this.
 
 ## Local Principles
 
 - No cloud credentials for any milestone through M4.
+- Every command a contributor needs is a task, and `task --list` describes it.
 - External feeds are not required; use deterministic fixture events.
 - Generated code is reproducible from pinned tool versions.
 - Docker Compose health checks gate dependent services.

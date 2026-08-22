@@ -2,7 +2,7 @@
 
 ## Where These Contracts Live
 
-The contract is [proto/signal/garden/v1/garden.proto](../proto/signal/garden/v1/garden.proto). Generated Go lands in `internal/gen/` and is committed, so a clean checkout builds without protoc; only regeneration needs the toolchain. Run `make proto`. See [0003](decisions/0003-generate-with-protoc-and-vendored-googleapis.md) for why generation uses protoc with vendored googleapis protos rather than buf.
+The contract is [proto/signal/garden/v1/garden.proto](../proto/signal/garden/v1/garden.proto). Generated Go lands in `internal/gen/` and is committed, so a clean checkout builds without protoc; only regeneration needs the toolchain. Run `task proto`. See [0003](decisions/0003-generate-with-protoc-and-vendored-googleapis.md) for why generation uses protoc with vendored googleapis protos rather than buf.
 
 M0 defined these seams as Go interfaces rather than protobuf, because a single process has no boundary to separate — see [0001](decisions/0001-defer-grpc-to-m1.md). The service is an adapter over `internal/engine`, which owns run lifecycle.
 

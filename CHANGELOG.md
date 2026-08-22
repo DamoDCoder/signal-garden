@@ -6,7 +6,10 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- The Makefile is now [Taskfile.yml](Taskfile.yml), run with [go-task](https://taskfile.dev). Every target kept its name and its behaviour — `task check` is `make check` — and `task proto` regenerates byte-identical output from the same pinned plugins. The one gain worth noting is `--`: `task run -- -seed 42 -ticks 40` reaches the binary, where the Makefile needed a bare `go run` for anything non-default.
+- `docs/local-development.md` no longer lists commands. `task --list` does, from each task's own description, so the list cannot drift from what actually runs. The doc says which commands are still missing and which milestone brings them.
 
 ## [0.5.0] — 2026-08-22
 
@@ -82,7 +85,7 @@ M1's server half: a live run, and a contract for talking to it.
 - `internal/engine`: live run lifecycle — start, pause, resume, finish, control revisions applied on tick boundaries, and projection fan-out to subscribers. Its method shapes match the service definitions in `docs/contracts.md`, so the M1 gRPC service becomes an adapter rather than a second implementation.
 - `internal/sim`: the per-tick simulation core, shared by the batch runner and the live engine so replay and live play cannot drift apart.
 - `signalgarden -live`: paces a run on a clock, streams a frame per tick, and accepts typed control changes. The terminal stand-in for the M1 control surface.
-- `proto/signal/garden/v1/garden.proto`: the versioned contract, with the seven methods and the exact REST routes from `docs/contracts.md`. Generated Go is committed under `internal/gen/`; `make proto` regenerates it from plugins pinned in `go.mod`.
+- `proto/signal/garden/v1/garden.proto`: the versioned contract, with the seven methods and the exact REST routes from `docs/contracts.md`. Generated Go is committed under `internal/gen/`; the `proto` task regenerates it from plugins pinned in `go.mod`.
 - `internal/service`: the gRPC adapter over the run engine. It holds no state and maps engine sentinel errors to status codes, so clients branch on codes rather than message text.
 - `cmd/signalgardend`: serves gRPC on `:9090` and the generated REST gateway on `:8080`, with `/healthz`, `/readyz`, gRPC health, and reflection. The gateway dials the gRPC listener rather than calling in process, so the hop the architecture describes is a real one.
 
