@@ -8,6 +8,16 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 Nothing yet.
 
+## [0.7.1] — 2026-08-25
+
+The daemon ships as a container image, so the client's stack has something to run.
+
+### Added
+
+- **The daemon ships its own container image.** `Dockerfile` assembles `signalgardend` onto Alpine, running as a non-root user with run history in a mounted volume and a `readyz` health check. `task docker:build` builds it, tagging both the version and `:local` and stamping the version into an image label. It is built locally and never pushed. The client repository's compose file names the image rather than building it: an artifact belongs to the repository that knows how to make it, and a *stack* belongs to the one that has the dependency. See [0015](docs/decisions/0015-ship-an-image-but-not-a-stack.md).
+- **`task build:docker` cross-compiles for the container platform**, into `bin/<os>_<arch>/` rather than into `bin/`. A developer machine builds for two platforms that are not interchangeable — `darwin/arm64` for the tests and the CLI, `linux/arm64` for the container — and a shared output path would mean whichever build ran last decided whether `docker run` worked, with `exec format error` as the only clue. `CGO_ENABLED=0` for the same class of reason: a binary dynamically linked against the host's libc starts here and fails on musl. `ARCH=amd64` builds for an x86 machine.
+- `task docker:run` and `task docker:images`, for exercising the image without a compose stack.
+
 ## [0.7.0] — 2026-08-25
 
 A run outlives the process that was serving it.
