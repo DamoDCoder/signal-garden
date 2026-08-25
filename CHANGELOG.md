@@ -6,7 +6,10 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- [0012](docs/decisions/0012-declare-the-js-type-of-every-64-bit-field.md) records what `protoc-gen-es` actually does with `jstype`, measured rather than assumed: `JS_STRING` is honoured and `JS_NUMBER` is not, so a 64-bit quantity arrives as `bigint`. Stripping every `JS_NUMBER` annotation produces byte-identical TypeScript. The rule still does its job — `run.seed` is a `string` a client passes around and `snapshot.tick` is a `bigint` it does arithmetic on — and `bigint` is the right answer, since `number` cannot hold an int64 losslessly.
+- `docs/contracts.md` gains the generation recipe, including the two vendored `google/api` protos that have to be generated alongside the contract.
 
 ## [0.6.0] — 2026-08-25
 

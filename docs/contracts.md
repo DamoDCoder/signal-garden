@@ -86,6 +86,18 @@ An offset past the tail is refused rather than answered with an empty catch-up. 
 
 A finished run sends its final frame and then a normal close, so a client can tell a completed run from a dropped connection.
 
+## Generating A Client
+
+The contract is generated from this repository and consumed by pinning a tag. For `protoc-gen-es`:
+
+```sh
+protoc -I proto -I third_party   --plugin=protoc-gen-es=./node_modules/.bin/protoc-gen-es   --es_out=src/gen --es_opt=target=ts,import_extension=.js   signal/garden/v1/garden.proto google/api/annotations.proto google/api/http.proto
+```
+
+The vendored `google/api` protos have to be generated alongside the contract — `garden_pb` imports the annotations file, and leaving it out fails at module resolution rather than at generation.
+
+64-bit quantities arrive as `bigint`, so they do not mix with `number` in arithmetic and `JSON.stringify` throws on them. Use `toJsonString` from `@bufbuild/protobuf`, and `Number(...)` where a value is rendered. See [0012](decisions/0012-declare-the-js-type-of-every-64-bit-field.md).
+
 ## Cross-Origin Requests
 
 The browser client runs on its own development server, so it is a different origin from the daemon. `SIGNAL_GARDEN_CORS_ORIGIN` controls what is allowed:
@@ -122,7 +134,7 @@ The same rules hold on the REST routes and on the projection stream, because bot
 
 - **Field names are snake_case**, from an explicit `json_name` on every field in the contract. The wire shape is written down in the `.proto` rather than decided by a marshaller option in Go.
 - **64-bit fields are JSON strings** — `"tick": "45"`, not `45`. This is the protobuf JSON mapping rather than a choice: JSON numbers lose precision above 2^53. It applies to `tick`, `sequence`, `seed`, and every offset, on both transports, so a client parses them once at the edge and never has to know which transport a value came from.
-- **Every 64-bit field declares its JS type** with `jstype`, so a generated client is told whether a value is a quantity or a token rather than inferring it. `JS_NUMBER` for bounded quantities a client does arithmetic on — ticks, sequences, offsets, counters — and `JS_STRING` for opaque tokens, of which `seed` is the only one. A generator that honours it types `snapshot.tick` as `number` and `run.seed` as `string`; the wire is a string either way. `ProcessorStats.by_type` is the exception, because protoc refuses `jstype` on a map field. See [0012](decisions/0012-declare-the-js-type-of-every-64-bit-field.md).
+- **Every 64-bit field declares its JS type** with `jstype`, so a generated client is told whether a value is a quantity or a token rather than inferring it. `JS_NUMBER` for bounded quantities a client does arithmetic on — ticks, sequences, offsets, counters — and `JS_STRING` for opaque tokens, of which `seed` is the only one. Measured against `protoc-gen-es`, the generator the client uses: `run.seed` is a `string` and every quantity is a `bigint`. `JS_STRING` is honoured; `JS_NUMBER` is not, because `number` cannot hold an int64 losslessly — but the distinction survives, which is what it was for. The wire is a JSON string either way. `ProcessorStats.by_type` is the exception, because protoc refuses `jstype` on a map field. See [0012](decisions/0012-declare-the-js-type-of-every-64-bit-field.md).
 - **Enums are their full names**: `"state": "RUN_STATE_RUNNING"`, `"type": "FRAME_TYPE_SNAPSHOT"`.
 - **Unset fields are present**, as `0`, `""`, or `null`. A message field that is not set serialises as `null` rather than being omitted, so `catchup` is `null` on a snapshot frame.
 - **Timestamps are RFC 3339**; durations are seconds with a suffix, `"0.200s"`.

@@ -39,9 +39,32 @@ This matches how the rest of the contract is written. Field names are stated wit
 
 **It does not change the server.** Regenerating with all 26 annotations added changed 100 lines of `garden.pb.go`, every one of them inside the embedded descriptor blob. Not one Go type, struct tag, or function differs. The annotation travels in the descriptor for a client generator to read.
 
-**It changes what a generated client is told.** A TypeScript generator that honours `jstype` types `snapshot.tick` as `number` and `run.seed` as `string`, and does the conversion in generated code. Whether a particular generator honours it is worth confirming when the client repository picks one — this decision makes the intent unambiguous either way, which is what a generator that ignores it would otherwise have left to a hand-written type.
+**It changes what a generated client is told.** The declaration travels in the descriptor and a TypeScript generator reads it. Exactly what it does with it is measured below rather than assumed.
 
 **One field is out of reach.** protoc refuses `jstype` on a map field, so `ProcessorStats.by_type` keeps string values in a generated client. It is the only map of 64-bit values in the contract, and its values are display counters.
+
+## Validated Against protoc-gen-es
+
+The client repository generates with `protoc-gen-es` (`@bufbuild/protoc-gen-es` 2.14.0). Running it against this contract, and round-tripping JSON captured from the live daemon back through the generated code:
+
+| Field | Declared | Generated TS type |
+| --- | --- | --- |
+| `Run.seed` | `JS_STRING` | `string` |
+| `Run.tick`, `max_ticks` | `JS_NUMBER` | `bigint` |
+| `GardenSnapshot.sequence`, `folded_offset` | `JS_NUMBER` | `bigint` |
+| `Run.organisms`, `revision` | *(int32)* | `number` |
+
+**`JS_STRING` is honoured. `JS_NUMBER` is not.** Generating with every `JS_NUMBER` annotation stripped produces byte-identical TypeScript — the only difference is the embedded descriptor — so for this generator `JS_NUMBER` is a no-op and `bigint` is what a 64-bit quantity becomes either way.
+
+That is protobuf-es being right rather than incomplete. `number` cannot hold an int64 without losing precision, and a generator that silently produced one would reintroduce exactly the bug the JSON mapping avoids.
+
+**The rule still does its job.** What we wanted was a client that can tell a quantity from a token, and it can: `run.seed` is a `string` it passes around, `snapshot.tick` is a `bigint` it does arithmetic on. `tick + 1n` works, `foldedOffset > 0n` works, and a round-trip re-emits `"42"` and `"13"` exactly as the daemon sent them. Only the name of the annotation is imprecise for this generator; the distinction it encodes is delivered.
+
+The annotations stay. `JS_NUMBER` is the honest declaration of intent, a generator that honours it produces `number`, and the enforcement test below is what makes the question unavoidable for the next field.
+
+**What the client has to know:** 64-bit quantities are `bigint`, so they do not mix with `number` in arithmetic, and `JSON.stringify` throws on them. Use `toJsonString` from `@bufbuild/protobuf` rather than `JSON.stringify`, and `Number(...)` at the point of rendering.
+
+Generation needs `--es_opt=target=ts,import_extension=.js`, and the vendored `google/api` protos have to be generated alongside the contract — `garden_pb` imports the annotations file.
 
 ## Enforcement
 
@@ -50,4 +73,5 @@ This matches how the rest of the contract is written. Field names are stated wit
 ## What Would Revisit This
 
 - A field that is genuinely both — a quantity that can exceed 2^53 — which would need `JS_STRING` and a client that does its arithmetic in `BigInt`.
+- protobuf-es gaining `JS_NUMBER` support, which would turn every quantity from `bigint` into `number` in one regeneration and is worth noticing before it happens silently.
 - A client generator with no `jstype` support and no way to configure the same outcome, which would move the declaration into that repository's generation config and make this record the thing it points at.
