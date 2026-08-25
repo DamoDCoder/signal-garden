@@ -6,6 +6,12 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.6.0] — 2026-08-25
+
+One contract, served identically by both transports, ready for a client in another repository to generate from.
+
 ### Added
 
 - `jstype` on all 26 of the contract's 64-bit fields, declaring what a generated client should see: `JS_NUMBER` for bounded quantities it does arithmetic on, `JS_STRING` for opaque tokens. `seed` is the only token. The wire is unchanged — 64-bit fields are JSON strings either way, per the protobuf JSON mapping — and so is the server: regenerating changed 100 lines of `garden.pb.go`, every one inside the embedded descriptor blob, with no Go type or struct tag touched. See [0012](docs/decisions/0012-declare-the-js-type-of-every-64-bit-field.md).
