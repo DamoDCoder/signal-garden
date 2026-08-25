@@ -6,6 +6,12 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.7.0] — 2026-08-25
+
+A run outlives the process that was serving it.
+
 ### Added
 
 - **A restarted daemon resumes its runs.** `sim.Resume` rebuilds a whole simulation rather than a garden, `Registry.Recover` revives runs by ID, and `signalgardend` finds the IDs with `eventlog.RunIDs` before it starts serving. A run interrupted at tick 26 comes back at tick 26 and reaches the garden a run that never stopped would have reached. See [0014](docs/decisions/0014-a-restarted-daemon-resumes-its-runs.md).
