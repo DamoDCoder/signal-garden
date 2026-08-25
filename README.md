@@ -95,28 +95,17 @@ Replay reaches the same snapshot hash the live run ended on, in a different proc
 
 Branch `feat/adopt-event-spine`, tags `v0.1.0` through `v0.4.0`, no remote configured yet. Everything passes under `task check`.
 
-**M2's exit criteria are met.** Duplicate delivery ✓, reconnect catch-up ✓, replay determinism on a chain ✓, crash survival ✓, keys and retention documented ✓. The projection stream that catch-up needed was M1's last outstanding transport, so M1 is down to the React surface and Compose.
+**M2's exit criteria are met.** Duplicate delivery ✓, reconnect catch-up ✓, replay determinism on a chain ✓, crash survival ✓, keys and retention documented ✓. The projection stream that catch-up needed was M1's last outstanding transport, so M1 is down to the React surface and Compose, both in the client repository.
 
-### 1. Make the producer resumable
+The producer is resumable as of [0013](docs/decisions/0013-derive-each-tick-s-randomness.md): a tick's randomness is derived from `(seed, tick)` rather than carried in a generator, so there is no position to write down.
 
-The blocker for resuming a live run after a restart, and the reason `v0.4.0` restores projections but not runs.
-
-A garden is the fold of a history, so it restores from one. A producer is a *position in a seeded stream* — `producer.Producer` holds a live `*rand.Rand` — and `math/rand` offers no way to write that position down. So `sim.Rebuild` can reconstruct what a run produced, and a restarted daemon still cannot carry on producing where it left off.
-
-Two shapes worth weighing before writing anything:
-
-- **Derive per tick.** Seed a fresh stream from `(seed, tick)` each tick, so position is a number rather than state. Resume becomes free. Changes every existing event stream, so the seed-42 fixtures and `732dc9ba` move.
-- **Carry a seekable source.** Replace `math/rand` with a source whose state serialises into the snapshot. Keeps existing streams intact; adds a dependency or a hand-written PRNG, and the snapshot gains a field that must version alongside it.
-
-The second preserves `SnapshotSchemaVersion` compatibility; the first is simpler forever after. Either way, `TestSnapshotCadenceDoesNotChangeTheRun` and the chain tests are the guard rails.
-
-### 2. M1's unfinished half
+### 1. M1's unfinished half
 
 React control surface and Docker Compose, both in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden). This repository owns the contract and stays runnable with `task serve` alone; the compose file describing both halves lives with the client, because the dependency runs that way round. See [0011](docs/decisions/0011-the-ui-is-a-separate-repository.md).
 
 What that client needs and does not have yet is a **generated TypeScript view of the contract** — an OpenAPI spec from `protoc-gen-openapiv2`, or generating from the `.proto` with `protoc-gen-es` or ts-proto. The shapes are settled either way, so this is a packaging decision rather than a design one.
 
-### 3. Catch-up cost under load
+### 2. Catch-up cost under load
 
 Resuming from a deep offset reads the whole gap on the run's own goroutine, which is a slice copy at M2's volumes and a measurable pause at M3's. [0009](docs/decisions/0009-catch-up-is-a-command-to-the-run-not-a-second-reader.md) records the fix and why it is deliberately not written yet: it wants a number from the load lab, not a guess.
 

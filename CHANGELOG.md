@@ -8,6 +8,9 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 ### Changed
 
+- **The producer derives each tick's randomness instead of carrying a generator.** `Tick` seeds a `math/rand/v2` PCG from `(seed, tick)` and discards it, so the producer's position is a number the run already knows rather than the internal state of a `*rand.Rand` that `math/rand` gave no way to read out. This is what `v0.4.0` said was missing before a live run could resume. See [0013](docs/decisions/0013-derive-each-tick-s-randomness.md).
+- **Every event stream changed.** A seed no longer means what it meant: the seed-42 scorecard moved from `732dc9ba…` to `39ced9bd…`. Run logs already on disk are unaffected, because replay folds records rather than reproducing them. The absorbing-state hash in [0008](docs/decisions/0008-assert-determinism-on-a-chain-not-a-terminal-hash.md) did *not* move — 20 dead organisms hash the same however they got there, which is that decision being right in public.
+
 - [0012](docs/decisions/0012-declare-the-js-type-of-every-64-bit-field.md) records what `protoc-gen-es` actually does with `jstype`, measured rather than assumed: `JS_STRING` is honoured and `JS_NUMBER` is not, so a 64-bit quantity arrives as `bigint`. Stripping every `JS_NUMBER` annotation produces byte-identical TypeScript. The rule still does its job — `run.seed` is a `string` a client passes around and `snapshot.tick` is a `bigint` it does arithmetic on — and `bigint` is the right answer, since `number` cannot hold an int64 losslessly.
 - `docs/contracts.md` gains the generation recipe, including the two vendored `google/api` protos that have to be generated alongside the contract.
 

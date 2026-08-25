@@ -160,3 +160,87 @@ func TestGrowthCarriesNoAmount(t *testing.T) {
 		}
 	}
 }
+
+// TestAProducerCanBeReconstructedMidRun is the property the whole design
+// exists for.
+//
+// A producer that ran ticks 0..14 continuously and one built fresh, told it is
+// at tick 15, must emit the same events from there on. Nothing about the first
+// producer's history is carried into the second except a count — which is what
+// makes a restarted daemon able to carry on producing rather than having to
+// start a new run.
+//
+// The old design could not pass this. It held a *rand.Rand whose position no
+// amount of bookkeeping could reproduce.
+func TestAProducerCanBeReconstructedMidRun(t *testing.T) {
+	const resumeAt = 15
+	c := domain.DefaultControls()
+
+	continuous, err := New("run-test", 7, 20)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	for tick := int64(0); tick < resumeAt; tick++ {
+		if _, err := continuous.Tick(tick, c); err != nil {
+			t.Fatalf("tick %d: %v", tick, err)
+		}
+	}
+
+	resumed, err := New("run-test", 7, 20)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resumed.Resume(continuous.Seq())
+
+	for tick := int64(resumeAt); tick < resumeAt+10; tick++ {
+		want, err := continuous.Tick(tick, c)
+		if err != nil {
+			t.Fatalf("continuous tick %d: %v", tick, err)
+		}
+		got, err := resumed.Tick(tick, c)
+		if err != nil {
+			t.Fatalf("resumed tick %d: %v", tick, err)
+		}
+		if len(got) != len(want) {
+			t.Fatalf("tick %d: resumed emitted %d events, continuous emitted %d", tick, len(got), len(want))
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("tick %d event %d:\n resumed  %+v\n continuous %+v", tick, i, got[i], want[i])
+			}
+		}
+	}
+}
+
+// TestTicksDoNotShareAStream guards the mistake derive-per-tick invites.
+//
+// Seeding each tick from the run's seed plus the tick number would compile,
+// pass a determinism test, and quietly make adjacent ticks produce related
+// draws. Two ticks of one run must look no more alike than two runs of one
+// tick do, so this asserts the obvious failure — identical output — does not
+// happen across a stretch of ticks.
+func TestTicksDoNotShareAStream(t *testing.T) {
+	c := domain.DefaultControls()
+	p, err := New("run-test", 7, 20)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	type draw struct {
+		entity string
+		amount int
+	}
+	seen := make(map[draw]int64)
+	for tick := int64(0); tick < 50; tick++ {
+		events, err := p.Tick(tick, c)
+		if err != nil {
+			t.Fatalf("tick %d: %v", tick, err)
+		}
+		first := draw{events[0].EntityID, events[0].Payload.Amount}
+		if at, repeat := seen[first]; repeat && at == tick-1 {
+			t.Errorf("tick %d opened exactly as tick %d did (%+v); adjacent ticks are sharing a stream",
+				tick, at, first)
+		}
+		seen[first] = tick
+	}
+}
