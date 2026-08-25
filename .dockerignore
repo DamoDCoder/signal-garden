@@ -1,0 +1,11 @@
+# The image copies one prebuilt binary, so the context needs almost nothing.
+# Everything is excluded and the binaries are added back, which means a new
+# directory in the repository cannot silently enlarge the build context.
+*
+!bin/
+
+# Not the tool plugins — they are host binaries for code generation.
+bin/tools
+
+# Nor run history, which can be large and belongs in a volume.
+data/

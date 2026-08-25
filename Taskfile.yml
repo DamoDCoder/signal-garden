@@ -9,6 +9,37 @@ vars:
   MODULE: github.com/damodbear/signal-garden
   TOOLS: bin/tools
 
+  # Two architectures, and they are not interchangeable.
+  #
+  # `task build` produces binaries for this machine, which is what the tests and
+  # the CLI demos run. `task build:docker` produces a binary for the container,
+  # which is Linux whatever the host is — on an Apple Silicon Mac that is
+  # darwin/arm64 and linux/arm64: the same instruction set, a different
+  # operating system, and a binary built for one does not start under the other.
+  #
+  # They land in different directories for that reason. A single bin/ shared by
+  # both would mean whichever ran last decided whether `docker run` worked, and
+  # the symptom — "exec format error" — does not name its cause.
+  #
+  # Override the container architecture with ARCH, which is what building an
+  # amd64 image on an Apple Silicon Mac needs:
+  #
+  #   task docker:build ARCH=amd64
+  # ARCH, IMAGE, and TAG are resolved in each task's own vars rather than here:
+  # a variable given on the command line — `task docker:build ARCH=amd64` —
+  # reaches a task's vars but not the global ones, so a default written here
+  # would quietly win over what was asked for.
+  HOST_ARCH:
+    sh: go env GOARCH
+  DOCKER_OS: linux
+
+  # The image is built locally and never pushed, so the name has no registry
+  # host on it. A tagged checkout stamps the tag a client would pin; anything
+  # else stamps something that says it is not one.
+  DEFAULT_IMAGE: signal-garden/signalgardend
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+
 tasks:
   default:
     desc: List available tasks
@@ -80,10 +111,91 @@ tasks:
     silent: true
 
   build:
-    desc: Build the CLI and the server into bin/
+    desc: Build the CLI and the server into bin/ for this machine
     cmds:
       - go build -o bin/signalgarden ./cmd/signalgarden
       - go build -o bin/signalgardend ./cmd/signalgardend
+
+  build:docker:
+    desc: Cross-compile for the container platform into bin/linux_ARCH/
+    vars:
+      DOCKER_ARCH: '{{.ARCH | default .HOST_ARCH}}'
+      DOCKER_BIN: 'bin/{{.DOCKER_OS}}_{{.ARCH | default .HOST_ARCH}}'
+    cmds:
+      - mkdir -p {{.DOCKER_BIN}}
+      # CGO off because the image is Alpine and the host toolchain is not: a
+      # dynamically linked binary built against glibc looks fine here and fails
+      # to start there, on a musl system with no loader for it.
+      - >-
+        CGO_ENABLED=0 GOOS={{.DOCKER_OS}} GOARCH={{.DOCKER_ARCH}}
+        go build -trimpath -o {{.DOCKER_BIN}}/signalgardend ./cmd/signalgardend
+      - >-
+        CGO_ENABLED=0 GOOS={{.DOCKER_OS}} GOARCH={{.DOCKER_ARCH}}
+        go build -trimpath -o {{.DOCKER_BIN}}/signalgarden ./cmd/signalgarden
+      - echo "built {{.DOCKER_OS}}/{{.DOCKER_ARCH}} binaries into {{.DOCKER_BIN}}"
+    silent: true
+
+  docker:build:
+    # Two tags, on purpose. The version tag is what a client would pin and is
+    # how a stale image is spotted; :local is a stable name the compose file in
+    # app.signal-garden can default to without being edited on every bump. The
+    # version travels in an image label either way, so a stack running :local
+    # can still say which contract it was built from.
+    desc: Build the local daemon image from the cross-compiled binary
+    vars:
+      DOCKER_ARCH: '{{.ARCH | default .HOST_ARCH}}'
+      DOCKER_BIN: 'bin/{{.DOCKER_OS}}_{{.ARCH | default .HOST_ARCH}}'
+      IMAGE_NAME: '{{.IMAGE | default .DEFAULT_IMAGE}}'
+      IMAGE_TAG: '{{.TAG | default .VERSION}}'
+    deps:
+      # The architecture has to travel with the dependency, or an amd64 image
+      # would be built around whichever binary happened to be there.
+      - task: build:docker
+        vars: { ARCH: '{{.ARCH | default .HOST_ARCH}}' }
+    cmds:
+      # --platform has to match the binary that was just built. Without it the
+      # image inherits the host's platform, and an image labelled darwin/arm64
+      # holding a linux/arm64 binary is refused by the runtime with an error
+      # about the manifest rather than about the mismatch.
+      - >-
+        docker build
+        --platform {{.DOCKER_OS}}/{{.DOCKER_ARCH}}
+        --build-arg BINARY={{.DOCKER_BIN}}/signalgardend
+        --label org.opencontainers.image.title=signalgardend
+        --label org.opencontainers.image.version={{.IMAGE_TAG}}
+        --label org.opencontainers.image.revision={{.VERSION}}
+        --label org.opencontainers.image.source=https://github.com/DamoDCoder/signal-garden
+        -t {{.IMAGE_NAME}}:{{.IMAGE_TAG}}
+        {{if eq .DOCKER_ARCH .HOST_ARCH}}-t {{.IMAGE_NAME}}:local{{end}}
+        .
+      # :local moves, so it is only ever applied to an image this machine can
+      # actually run. A cross-architecture build that claimed it would leave
+      # compose starting an amd64 daemon on an arm64 host under emulation, or
+      # not at all, with a moving tag as the only clue.
+      - >-
+        echo "built {{.IMAGE_NAME}}:{{.IMAGE_TAG}}{{if eq .DOCKER_ARCH .HOST_ARCH}} and :local{{end}}
+        for {{.DOCKER_OS}}/{{.DOCKER_ARCH}}"
+    silent: true
+
+  docker:run:
+    desc: Run the local image on :8080 and :9090, with history in a named volume
+    vars:
+      IMAGE_NAME: '{{.IMAGE | default .DEFAULT_IMAGE}}'
+      IMAGE_TAG: '{{.TAG | default "local"}}'
+    cmds:
+      - >-
+        docker run --rm
+        -p 8080:8080 -p 9090:9090
+        -v signal-garden-data:/data
+        {{.IMAGE_NAME}}:{{.IMAGE_TAG}} {{.CLI_ARGS}}
+
+  docker:images:
+    desc: Show the daemon images in the local image store
+    vars:
+      IMAGE_NAME: '{{.IMAGE | default .DEFAULT_IMAGE}}'
+    cmds:
+      - docker image ls {{.IMAGE_NAME}}
+    silent: true
 
   fmt:
     desc: Format all Go source
@@ -103,6 +215,6 @@ tasks:
       - task: test-race
 
   clean:
-    desc: Remove build output
+    desc: Remove build output, host and container alike
     cmds:
       - rm -rf bin/
