@@ -83,6 +83,12 @@ message Run {
   string failure = 13 [json_name = "failure"];
 
   int32 schema_version = 14 [json_name = "schema_version"];
+
+  // resumed marks a run the daemon picked back up after a restart rather than
+  // started. The garden and the tick counter carry on; the determinism chain
+  // does not, because a resumed run did not fold the records below the
+  // snapshot it restored from. A client comparing chains needs to know.
+  bool resumed = 15 [json_name = "resumed"];
 }
 
 // Organism is one plant in the garden.

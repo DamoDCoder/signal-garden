@@ -195,6 +195,12 @@ type Run struct {
 	// normal case, and it is the only place a caller can learn that this
 	// garden may not match any history.
 	LogRecovery string `json:"log_recovery,omitempty"`
+
+	// Resumed marks a run the daemon picked back up after a restart rather
+	// than started. The garden and the tick counter carry on; the
+	// determinism chain does not, because a resumed run did not fold the
+	// records below the snapshot it restored from.
+	Resumed bool `json:"resumed,omitempty"`
 }
 
 // ControlRevision is the receipt for an accepted control update.
@@ -390,12 +396,30 @@ func (g *Registry) StartRun(req StartRunRequest) (Run, error) {
 		Controls:       req.Controls,
 		DuplicateEvery: req.DuplicateEvery,
 		SnapshotEvery:  req.SnapshotEvery,
+		MaxTicks:       req.MaxTicks,
+		TickInterval:   req.TickInterval,
 		Log:            runLog,
 	})
 	if err != nil {
 		_ = runLog.Close()
 		g.mu.Unlock()
 		return Run{}, err
+	}
+
+	s.SetState(string(StateRunning))
+
+	// Snapshot at tick zero, before the run has done anything.
+	//
+	// A snapshot is the only place a run's identity is written down — its
+	// seed, its controls, its pace — because no record a producer emits
+	// mentions any of them. Waiting for the cadence would leave every run
+	// unrecoverable for its first fifty ticks: the log would hold records
+	// and nothing would know what run they belonged to. This costs one small
+	// write per run and makes a run self-describing from its first moment.
+	if err := s.Save(); err != nil {
+		_ = s.Close()
+		g.mu.Unlock()
+		return Run{}, fmt.Errorf("record run %s: %w", req.RunID, err)
 	}
 
 	now := g.clock.Now()
@@ -420,6 +444,122 @@ func (g *Registry) StartRun(req StartRunRequest) (Run, error) {
 
 	go lr.loop()
 	return g.GetRun(req.RunID)
+}
+
+// Recover brings interrupted runs back, one per run ID it is given.
+//
+// A daemon that restarts has run directories on disk and no runs in memory. For
+// each ID, this rebuilds the simulation from its log and starts it ticking
+// again where it stopped — the same run, not a new one that happens to share a
+// garden. Runs whose last snapshot says they finished are skipped: they ended
+// on purpose and reviving them would restart a completed game.
+//
+// The caller supplies the IDs rather than the registry going looking, because
+// the registry does not know where logs live — that is the LogOpener's business
+// — and a caller that wants to recover a subset should be able to.
+//
+// A run that cannot be recovered does not stop the ones that can. Recovery
+// returns the runs it revived and joins the failures, so a daemon can start
+// with nine of ten runs back and say clearly what happened to the tenth.
+func (g *Registry) Recover(runIDs []string) ([]Run, error) {
+	var (
+		revived []Run
+		errs    []error
+	)
+	for _, id := range runIDs {
+		run, ok, err := g.recoverOne(id)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if ok {
+			revived = append(revived, run)
+		}
+	}
+	return revived, errors.Join(errs...)
+}
+
+// recoverOne revives a single run. The bool is false for a run that was
+// finished rather than interrupted, which is a skip and not a failure.
+func (g *Registry) recoverOne(runID string) (Run, bool, error) {
+	g.mu.Lock()
+	if g.closed {
+		g.mu.Unlock()
+		return Run{}, false, ErrRegistryDown
+	}
+	if _, exists := g.runs[runID]; exists {
+		g.mu.Unlock()
+		return Run{}, false, fmt.Errorf("recover %s: %w", runID, ErrRunExists)
+	}
+
+	runLog, recovered, err := g.openHistory(runID)
+	if err != nil {
+		g.mu.Unlock()
+		return Run{}, false, fmt.Errorf("recover %s: %w", runID, err)
+	}
+
+	s, snapshot, err := sim.Resume(runID, runLog)
+	if err != nil {
+		_ = runLog.Close()
+		g.mu.Unlock()
+		return Run{}, false, err
+	}
+	if State(snapshot.State) == StateFinished {
+		// Finished on purpose. Closing the log here matters: a finished
+		// run holds a directory, and leaving it open would keep a handle
+		// on every completed run the daemon has ever served.
+		_ = runLog.Close()
+		g.mu.Unlock()
+		return Run{}, false, nil
+	}
+
+	req := StartRunRequest{
+		RunID:          runID,
+		Seed:           snapshot.Seed,
+		Organisms:      len(snapshot.Organisms),
+		Controls:       snapshot.Controls,
+		TickInterval:   snapshot.TickInterval,
+		MaxTicks:       snapshot.MaxTicks,
+		DuplicateEvery: snapshot.DuplicateEvery,
+		SnapshotEvery:  g.snapshot,
+	}
+	if req.TickInterval <= 0 {
+		req.TickInterval = g.interval
+	}
+
+	// A run that was paused when the daemon stopped comes back paused. It
+	// is still the same run, and deciding to resume it is the player's.
+	state := State(snapshot.State)
+	if state != StatePaused {
+		state = StateRunning
+	}
+	s.SetState(string(state))
+
+	now := g.clock.Now()
+	lr := &liveRun{
+		req:       req,
+		sim:       s,
+		clock:     g.clock,
+		recovered: recovered,
+		resumed:   true,
+		state:     state,
+		startedAt: now,
+		updatedAt: now,
+		subs:      make(map[int]*Subscription),
+		cmds:      make(chan func(*liveRun)),
+		quit:      make(chan struct{}),
+		done:      make(chan struct{}),
+	}
+	lr.ticker = g.clock.NewTicker(req.TickInterval)
+
+	g.runs[runID] = lr
+	g.order = append(g.order, runID)
+	g.mu.Unlock()
+
+	go lr.loop()
+
+	run, err := g.GetRun(runID)
+	return run, true, err
 }
 
 // GetRun returns current run metadata.
@@ -500,6 +640,16 @@ func (g *Registry) setPaused(runID string, paused bool) (Run, error) {
 			r.state = StatePaused
 		} else {
 			r.state = StateRunning
+		}
+		r.sim.SetState(string(r.state))
+		// A pause writes a snapshot rather than waiting for the cadence.
+		// A paused run produces nothing, so the next scheduled snapshot
+		// would never arrive, and a restart would find a run that still
+		// looked like it was running. A failed write is not a reason to
+		// refuse the pause — the run really is paused — but it must not
+		// be silent, because it means a restart will resume it running.
+		if err := r.sim.Save(); err != nil && r.failure == nil {
+			r.failure = err
 		}
 		r.updatedAt = r.clock.Now()
 		r.publish()
@@ -682,6 +832,25 @@ func (g *Registry) claimLogLocked(runID string, generated bool) (string, *eventl
 // run ID has been used before, and appending a second run's events into the
 // first one's history would leave a log that replays as neither.
 func (g *Registry) openRunLog(runID string) (*eventlog.Log, eventlog.Recovery, error) {
+	runLog, recovered, err := g.openHistory(runID)
+	if err != nil {
+		return nil, recovered, err
+	}
+	if runLog.Next() > 0 {
+		_ = runLog.Close()
+		return nil, recovered, fmt.Errorf("%w: %s holds %d records", ErrRunHasHistory, runID, runLog.Next())
+	}
+	return runLog, recovered, nil
+}
+
+// openHistory opens a run's log and applies the corrupt-recovery policy,
+// without caring whether the log already holds records.
+//
+// Starting a run and recovering one want opposite things from an existing
+// history — one refuses it, the other requires it — but both want the same
+// answer to "the disk returned bytes that were wrong", which is why the policy
+// lives here rather than in either caller.
+func (g *Registry) openHistory(runID string) (*eventlog.Log, eventlog.Recovery, error) {
 	runLog, recovered, err := g.openLog(runID)
 	if err != nil {
 		return nil, recovered, fmt.Errorf("open log for run %s: %w", runID, err)
@@ -700,11 +869,6 @@ func (g *Registry) openRunLog(runID string) (*eventlog.Log, eventlog.Recovery, e
 			_ = runLog.Close()
 			return nil, recovered, fmt.Errorf("%w: run %s cannot continue: %w", ErrCorruptLog, runID, err)
 		}
-	}
-
-	if runLog.Next() > 0 {
-		_ = runLog.Close()
-		return nil, recovered, fmt.Errorf("%w: %s holds %d records", ErrRunHasHistory, runID, runLog.Next())
 	}
 	return runLog, recovered, nil
 }
@@ -761,6 +925,12 @@ type liveRun struct {
 	finishedAt time.Time
 	failure    error
 	recovered  eventlog.Recovery
+
+	// resumed marks a run the daemon picked back up rather than started.
+	// It is on the wire because a client cannot tell otherwise: the garden
+	// and the tick counter continue, but the determinism chain does not —
+	// a resumed run did not fold the records below its snapshot.
+	resumed bool
 
 	ticker  Ticker
 	subs    map[int]*Subscription
@@ -833,6 +1003,7 @@ func (r *liveRun) finish() {
 		return
 	}
 	r.state = StateFinished
+	r.sim.SetState(string(StateFinished))
 	r.finishedAt = r.clock.Now()
 	r.updatedAt = r.finishedAt
 
@@ -914,6 +1085,7 @@ func (r *liveRun) view() Run {
 		v.LogRecovery = fmt.Sprintf("log opened corrupt and was allowed to continue: discarded %d bytes, resumed at offset %d: %v",
 			r.recovered.Discarded, r.recovered.Next, r.recovered.Corrupt)
 	}
+	v.Resumed = r.resumed
 	return v
 }
 

@@ -105,5 +105,22 @@ func (p *Processor) Stats() Stats {
 	return out
 }
 
+// Restore adopts counters from a run's history, so a resumed run reports what
+// it has done rather than what it has done since restarting.
+//
+// The deduplication table is deliberately not restored, and cannot be: it is
+// keyed on every event the run ever applied, and keeping it would mean carrying
+// the whole history in memory to protect against a redelivery that cannot
+// happen. A redelivery is appended next to the record it repeats, so no
+// duplicate pair straddles a restart — the same argument Rebuild relies on when
+// it folds a snapshot's tail.
+func (p *Processor) Restore(s Stats) {
+	p.stats = s
+	p.stats.ByType = make(map[string]int, len(s.ByType))
+	for k, v := range s.ByType {
+		p.stats.ByType[k] = v
+	}
+}
+
 // Garden returns the projection the processor owns.
 func (p *Processor) Garden() *domain.Garden { return p.garden }

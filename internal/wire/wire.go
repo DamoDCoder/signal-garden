@@ -72,6 +72,7 @@ func Run(r engine.Run) *gardenv1.Run {
 		FinishedAt:    timestampOf(r.FinishedAt),
 		Failure:       r.Failure,
 		SchemaVersion: event.SchemaVersion,
+		Resumed:       r.Resumed,
 	}
 }
 

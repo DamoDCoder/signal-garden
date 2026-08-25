@@ -251,6 +251,11 @@ type Run struct {
 	// failure records why a run ended early. Empty for runs that ended normally.
 	Failure       string `protobuf:"bytes,13,opt,name=failure,proto3" json:"failure,omitempty"`
 	SchemaVersion int32  `protobuf:"varint,14,opt,name=schema_version,proto3" json:"schema_version,omitempty"`
+	// resumed marks a run the daemon picked back up after a restart rather than
+	// started. The garden and the tick counter carry on; the determinism chain
+	// does not, because a resumed run did not fold the records below the
+	// snapshot it restored from. A client comparing chains needs to know.
+	Resumed       bool `protobuf:"varint,15,opt,name=resumed,proto3" json:"resumed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -381,6 +386,13 @@ func (x *Run) GetSchemaVersion() int32 {
 		return x.SchemaVersion
 	}
 	return 0
+}
+
+func (x *Run) GetResumed() bool {
+	if x != nil {
+		return x.Resumed
+	}
+	return false
 }
 
 // Organism is one plant in the garden.
@@ -1785,7 +1797,7 @@ const file_signal_garden_v1_garden_proto_rawDesc = "" +
 	"\x0fevents_per_tick\x18\x01 \x01(\x05R\x0fevents_per_tick\x12 \n" +
 	"\vrain_weight\x18\x02 \x01(\x05R\vrain_weight\x12$\n" +
 	"\rgrowth_weight\x18\x03 \x01(\x05R\rgrowth_weight\x12 \n" +
-	"\vpest_weight\x18\x04 \x01(\x05R\vpest_weight\"\xcc\x04\n" +
+	"\vpest_weight\x18\x04 \x01(\x05R\vpest_weight\"\xe6\x04\n" +
 	"\x03Run\x12\x16\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x06run_id\x12\x16\n" +
 	"\x04seed\x18\x02 \x01(\x03B\x020\x01R\x04seed\x12\x1c\n" +
@@ -1805,7 +1817,8 @@ const file_signal_garden_v1_garden_proto_rawDesc = "" +
 	"updated_at\x12<\n" +
 	"\vfinished_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\vfinished_at\x12\x18\n" +
 	"\afailure\x18\r \x01(\tR\afailure\x12&\n" +
-	"\x0eschema_version\x18\x0e \x01(\x05R\x0eschema_version\"d\n" +
+	"\x0eschema_version\x18\x0e \x01(\x05R\x0eschema_version\x12\x18\n" +
+	"\aresumed\x18\x0f \x01(\bR\aresumed\"d\n" +
 	"\bOrganism\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\bmoisture\x18\x02 \x01(\x05R\bmoisture\x12\x16\n" +

@@ -82,6 +82,15 @@ The daemon keeps each run's events in an append-only log under `data/runs/<run_i
 
 A run ID is taken by history as well as by a live run, so restarting the daemon and starting a run picks the next free ID rather than appending a second run's events into the first one's log. Asking for a used ID explicitly returns `409`.
 
+On startup the daemon resumes every run in that directory that had not finished, and says what it found:
+
+```text
+run history under data, on corrupt: refuse
+resumed survivor at tick 27, running
+```
+
+A resumed run reports `"resumed": true`. Its garden and tick counter carry on; its determinism chain starts fresh, because it did not fold the records below the snapshot it restored from.
+
 The batch and live CLI keep history in memory unless told otherwise, so a demo leaves nothing behind:
 
 ```sh
@@ -97,7 +106,7 @@ Branch `feat/adopt-event-spine`, tags `v0.1.0` through `v0.4.0`, no remote confi
 
 **M2's exit criteria are met.** Duplicate delivery ✓, reconnect catch-up ✓, replay determinism on a chain ✓, crash survival ✓, keys and retention documented ✓. The projection stream that catch-up needed was M1's last outstanding transport, so M1 is down to the React surface and Compose, both in the client repository.
 
-The producer is resumable as of [0013](docs/decisions/0013-derive-each-tick-s-randomness.md): a tick's randomness is derived from `(seed, tick)` rather than carried in a generator, so there is no position to write down.
+**Runs survive a restart.** Kill the daemon mid-run and start it again: it finds the runs it was serving, rebuilds each one from its log, and carries on producing where it stopped. A run interrupted at tick 26 comes back at tick 26 and reaches the garden a run that never stopped would have reached. Finished runs stay finished; paused runs come back paused. See [0013](docs/decisions/0013-derive-each-tick-s-randomness.md) for the producer half and [0014](docs/decisions/0014-a-restarted-daemon-resumes-its-runs.md) for the rest.
 
 ### 1. M1's unfinished half
 

@@ -26,7 +26,10 @@ package eventlog
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/DamoDCoder/event-spine/core"
 	spinelog "github.com/DamoDCoder/event-spine/log"
@@ -81,6 +84,31 @@ func OpenDir(root, runID string) (*Log, Recovery, error) {
 		return nil, Recovery{}, fmt.Errorf("open run directory: %w", err)
 	}
 	return Open(fs)
+}
+
+// RunIDs lists the runs a data root holds, in name order.
+//
+// It reads directory names rather than opening anything, because the caller is
+// deciding *which* logs to open and opening them all to find out would be the
+// expensive way round. A root that does not exist yet holds no runs, which is
+// not an error — a first start has nothing to recover.
+func RunIDs(root string) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(root, "runs"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list runs under %s: %w", root, err)
+	}
+
+	ids := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			ids = append(ids, e.Name())
+		}
+	}
+	sort.Strings(ids)
+	return ids, nil
 }
 
 // OpenWith opens a log with an explicit spine configuration. Crash tests use it
@@ -231,6 +259,49 @@ func (l *Log) Since(from int64) ([]event.Event, error) {
 		}
 		out = append(out, e)
 	}
+}
+
+// Last returns the newest record in the log, and false when the log is empty.
+//
+// It is what a resuming producer needs: the last record carries the sequence
+// number the run had reached, so the count that numbers event IDs comes from
+// the history rather than from a field somebody has to remember to persist.
+func (l *Log) Last() (event.Event, bool, error) {
+	next := l.log.Next()
+	if next == l.log.First() {
+		return event.Event{}, false, nil
+	}
+
+	rec, err := l.log.Read(next - 1)
+	if err != nil {
+		return event.Event{}, false, fmt.Errorf("read last record at %d: %w", next-1, err)
+	}
+	e, err := event.FromCore(rec.Event)
+	if err != nil {
+		return event.Event{}, false, fmt.Errorf("decode last record at %d: %w", rec.Offset, err)
+	}
+	return e, true, nil
+}
+
+// MarkFolded declares that the projection now holds every record the log does,
+// and moves the consumer cursor to the tail to match.
+//
+// A resumed run needs it and nothing else does. Opening a log positions the
+// cursor where the group last *committed*, which is correct for a projection
+// that will replay forward from there — but a resumed run rebuilds its garden
+// from the snapshot and the whole tail before it ticks, so the records between
+// the commit and the tail are already folded. Leaving the cursor behind would
+// redeliver them into a projection that has them, and with a deduplication
+// table that a restart necessarily emptied, they would apply a second time.
+//
+// It deliberately does not commit. The commit still means what it meant: the
+// last position with durable state behind it. A crash before the next snapshot
+// resumes from there and rebuilds exactly as this one did.
+func (l *Log) MarkFolded() error {
+	if err := l.reader.Seek(l.log.Next()); err != nil {
+		return fmt.Errorf("move group %s to the tail at %d: %w", GroupName, l.log.Next(), err)
+	}
+	return nil
 }
 
 // Save writes a snapshot of the projection and then commits the group to the

@@ -26,7 +26,9 @@ payload        typed event data
 | `growth` | Event producer | Applies growth when moisture and health allow it | `event_id` |
 | `pest` | Event producer | Reduces health and may create a retryable side effect | `event_id` |
 | `control_changed` | Control service | Changes future producer behavior | `run_id + revision` |
-| `run_state_changed` | Control service | Starts, pauses, or finishes a run | `run_id + revision` |
+| `run_state_changed` | Control service | Starts, pauses, or finishes a run — *declared, not emitted; see below* | `run_id + revision` |
+
+`run_state_changed` is declared and deliberately not emitted. A run's lifecycle rides in its snapshot instead, for two reasons: the idempotency key above would collapse two lifecycle changes at the same revision into one, and a pause produces no events, so replay has nothing to reproduce. Lifecycle is projection metadata rather than a domain fact. See [0014](decisions/0014-a-restarted-daemon-resumes-its-runs.md); the type stays in the contract because emitting it later is an addition rather than a break.
 
 ## Log Planning Defaults
 

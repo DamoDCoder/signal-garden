@@ -6,6 +6,18 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 ## [Unreleased]
 
+### Added
+
+- **A restarted daemon resumes its runs.** `sim.Resume` rebuilds a whole simulation rather than a garden, `Registry.Recover` revives runs by ID, and `signalgardend` finds the IDs with `eventlog.RunIDs` before it starts serving. A run interrupted at tick 26 comes back at tick 26 and reaches the garden a run that never stopped would have reached. See [0014](docs/decisions/0014-a-restarted-daemon-resumes-its-runs.md).
+- `SnapshotSchemaVersion` 2: the snapshot carries the run's lifecycle state and its operational parameters — `max_ticks`, `tick_interval`, `duplicate_every`. Records describe what a run produced and say nothing about what it was or what it was doing, so this is the only place a run's identity is written down. Snapshots from version 1 are refused rather than guessed at; the records are still there and `-replay` folds them.
+- A snapshot at tick zero, written when a run starts. Without it a run interrupted before its first cadence snapshot had a log full of records and nothing to say what run they belonged to — the first ten seconds of every run at the default cadence, which is exactly when a crash is most likely.
+- `Run.resumed` on the wire. The garden and the tick counter carry on across a restart; the determinism chain does not, because a resumed run did not fold the records below its snapshot.
+- `eventlog.Log.MarkFolded`, `eventlog.Log.Last`, `eventlog.RunIDs`, and `processor.Processor.Restore`.
+
+### Fixed
+
+- A resumed run re-folded every record between the last commit and the tail. A log opens with its reader where the group last committed, `Rebuild` folds the whole tail through its own cursor, and the gap was redelivered into a processor whose deduplication table a restart had necessarily emptied — so those records applied twice and the garden diverged. `MarkFolded` moves the cursor with the projection, without committing.
+
 ### Changed
 
 - **The producer derives each tick's randomness instead of carrying a generator.** `Tick` seeds a `math/rand/v2` PCG from `(seed, tick)` and discards it, so the producer's position is a number the run already knows rather than the internal state of a `*rand.Rand` that `math/rand` gave no way to read out. This is what `v0.4.0` said was missing before a live run could resume. See [0013](docs/decisions/0013-derive-each-tick-s-randomness.md).

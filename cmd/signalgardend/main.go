@@ -31,6 +31,7 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	"github.com/damodbear/signal-garden/internal/engine"
+	"github.com/damodbear/signal-garden/internal/eventlog"
 	gardenv1 "github.com/damodbear/signal-garden/internal/gen/signal/garden/v1"
 	"github.com/damodbear/signal-garden/internal/projection"
 	"github.com/damodbear/signal-garden/internal/service"
@@ -70,6 +71,16 @@ func realMain() error {
 	)
 	defer runs.Close()
 	fmt.Fprintf(os.Stderr, "run history under %s, on corrupt: %s\n", dataDir, corrupt)
+
+	// Recover before serving. A client that connects during startup should
+	// find the runs that were going when the daemon stopped, not an empty
+	// registry that fills in a moment later.
+	if err := recoverRuns(runs, dataDir); err != nil {
+		// A run that cannot be recovered is not a reason to refuse to
+		// start: the others are fine, and refusing would take a whole
+		// daemon down for one bad directory. It must be loud, though.
+		fmt.Fprintf(os.Stderr, "recovery: %v\n", err)
+	}
 	if corsOrigin == "" {
 		fmt.Fprintln(os.Stderr, "cross-origin requests refused")
 	} else {
@@ -141,6 +152,33 @@ func realMain() error {
 	}
 	grpcServer.GracefulStop()
 	return nil
+}
+
+// recoverRuns brings back the runs a previous process left interrupted.
+//
+// The registry does not know where logs live, so the IDs are read here and
+// handed over. A data directory that does not exist yet lists no runs, which is
+// what a first start looks like.
+func recoverRuns(runs *engine.Registry, dataDir string) error {
+	ids, err := eventlog.RunIDs(dataDir)
+	if err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	revived, err := runs.Recover(ids)
+	for _, r := range revived {
+		fmt.Fprintf(os.Stderr, "resumed %s at tick %d, %s\n", r.RunID, r.Tick, r.State)
+	}
+	// Only count runs as finished when nothing failed. A failure is also a
+	// run that did not come back, and reporting it as "already finished"
+	// would describe a problem as a normal outcome.
+	if skipped := len(ids) - len(revived); skipped > 0 && err == nil {
+		fmt.Fprintf(os.Stderr, "%d of %d runs had already finished\n", skipped, len(ids))
+	}
+	return err
 }
 
 // newGateway dials the gRPC listener and returns the generated REST handler.

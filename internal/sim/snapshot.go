@@ -2,14 +2,19 @@ package sim
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/DamoDCoder/event-spine/core"
 
 	"github.com/damodbear/signal-garden/internal/domain"
 	"github.com/damodbear/signal-garden/internal/event"
 	"github.com/damodbear/signal-garden/internal/eventlog"
 	"github.com/damodbear/signal-garden/internal/processor"
+	"github.com/damodbear/signal-garden/internal/producer"
 )
 
 // Snapshot is the projection state written into the log, so a restart does not
@@ -42,12 +47,31 @@ type Snapshot struct {
 	// that wrote it.
 	Chain      string `json:"chain"`
 	ChainSteps int64  `json:"chain_steps"`
+
+	// State is the run's lifecycle at the moment of the snapshot. It is the
+	// only way a restarted daemon can tell a run that finished from one that
+	// was interrupted: the log records what a run produced, never what it
+	// was doing. A finished run writes a final snapshot, so "finished" here
+	// is a fact rather than an inference.
+	State string `json:"state"`
+
+	// The operational parameters of the run. They are not derivable from any
+	// record — nothing a producer emits mentions how fast the run was paced
+	// or when it was due to stop — so a resumed run would otherwise silently
+	// adopt the defaults instead of continuing as itself.
+	MaxTicks       int64         `json:"max_ticks"`
+	TickInterval   time.Duration `json:"tick_interval"`
+	DuplicateEvery int           `json:"duplicate_every"`
 }
 
 // SnapshotSchemaVersion is bumped when a snapshot's fields change
 // incompatibly. A snapshot from an unknown version is refused rather than
 // guessed at: the records are still there, and folding them is always correct.
-const SnapshotSchemaVersion = 1
+//
+// Version 2 added the run's lifecycle state and its operational parameters, so
+// a restarted daemon can resume a run as itself rather than as a fresh run that
+// happens to share its garden.
+const SnapshotSchemaVersion = 2
 
 // SnapshotState captures the current projection.
 func (s *Sim) SnapshotState() Snapshot {
@@ -63,6 +87,11 @@ func (s *Sim) SnapshotState() Snapshot {
 		Published:     s.published,
 		Chain:         s.Chain(),
 		ChainSteps:    s.ChainSteps(),
+
+		State:          s.state,
+		MaxTicks:       s.cfg.MaxTicks,
+		TickInterval:   s.cfg.TickInterval,
+		DuplicateEvery: s.cfg.DuplicateEvery,
 	}
 }
 
@@ -193,3 +222,94 @@ func merge(a, b processor.Stats) processor.Stats {
 	}
 	return out
 }
+
+// Resume reconstructs a whole simulation from a run's log, ready to keep
+// producing.
+//
+// Rebuild answers "what garden did this run reach"; this answers "what was this
+// run, and where was it". The difference is everything a garden is not: the
+// producer's position, the controls in force, the pace, and the lifecycle.
+//
+// The producer's position needs no stored field. Its randomness is derived from
+// (seed, tick) — see docs/decisions/0013 — and its one accumulating value is a
+// count of events, which the last record in the log already carries.
+//
+// The determinism chain does not carry over. A resumed Sim did not fold the
+// records below its snapshot, so it cannot continue a chain that describes
+// them; it starts a fresh one and the snapshot keeps the old digest for a
+// replay to check against. A resumed run is therefore not a chain-comparable
+// continuation of the run it resumes, which is why replay verification uses the
+// log rather than a live run.
+func Resume(runID string, l *eventlog.Log) (*Sim, Snapshot, error) {
+	if l == nil {
+		return nil, Snapshot{}, fmt.Errorf("resume run %s: no log", runID)
+	}
+
+	garden, snapshot, err := Rebuild(l)
+	if err != nil {
+		return nil, Snapshot{}, fmt.Errorf("resume run %s: %w", runID, err)
+	}
+
+	// Rebuild folded everything the log holds, so the consumer cursor has to
+	// say so. It opens at the last commit, which trails the tail by up to a
+	// snapshot's worth of ticks; leaving it there would redeliver records the
+	// garden already has into a processor whose deduplication table a restart
+	// emptied, and apply them twice.
+	if err := l.MarkFolded(); err != nil {
+		return nil, snapshot, fmt.Errorf("resume run %s: %w", runID, err)
+	}
+	if snapshot.RunID == "" {
+		// A history with no snapshot yet: the garden folded, but nothing
+		// recorded what the run was. Seed and controls are unknowable
+		// from records alone, so resuming would invent a different run.
+		return nil, snapshot, fmt.Errorf("resume run %s: %w", runID, ErrNoRunState)
+	}
+
+	prod, err := producer.New(snapshot.RunID, snapshot.Seed, len(snapshot.Organisms))
+	if err != nil {
+		return nil, snapshot, fmt.Errorf("resume run %s: %w", runID, err)
+	}
+	last, ok, err := l.Last()
+	if err != nil {
+		return nil, snapshot, fmt.Errorf("resume run %s: %w", runID, err)
+	}
+	if ok {
+		prod.Resume(last.Sequence)
+	}
+
+	committed, err := l.Committed()
+	if err != nil {
+		return nil, snapshot, fmt.Errorf("resume run %s: %w", runID, err)
+	}
+
+	s := &Sim{
+		cfg: Config{
+			RunID:          snapshot.RunID,
+			Seed:           snapshot.Seed,
+			Organisms:      len(snapshot.Organisms),
+			Controls:       snapshot.Controls,
+			DuplicateEvery: snapshot.DuplicateEvery,
+			MaxTicks:       snapshot.MaxTicks,
+			TickInterval:   snapshot.TickInterval,
+			Log:            l,
+		},
+		garden:    garden,
+		prod:      prod,
+		log:       l,
+		proc:      processor.New(garden),
+		chain:     core.NewChain(),
+		tick:      snapshot.Tick,
+		controls:  snapshot.Controls,
+		revision:  snapshot.Revision,
+		published: snapshot.Published,
+		committed: committed,
+		state:     snapshot.State,
+	}
+	s.proc.Restore(snapshot.Processor)
+	return s, snapshot, nil
+}
+
+// ErrNoRunState means a run's log holds records but no snapshot, so what the
+// run *was* — its seed, its controls, its pace — was never written down. The
+// garden still rebuilds; the run does not.
+var ErrNoRunState = errors.New("run has records but no snapshot")

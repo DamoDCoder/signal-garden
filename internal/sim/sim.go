@@ -11,6 +11,7 @@ package sim
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/DamoDCoder/event-spine/core"
 	spinesim "github.com/DamoDCoder/event-spine/sim"
@@ -38,6 +39,14 @@ type Config struct {
 	// every N ticks. Zero never snapshots, which means a restart folds the
 	// run's whole history — correct, and slower the longer the run.
 	SnapshotEvery int64
+
+	// MaxTicks and TickInterval are the run's operational parameters. The
+	// simulation does not read them — a Sim ticks when it is told to and
+	// stops when it is told to — but it writes them into its snapshots,
+	// because they are the part of a run that no record mentions and a
+	// resumed run would otherwise have to guess at.
+	MaxTicks     int64
+	TickInterval time.Duration
 
 	// Log is the run's durable event history. A nil Log gets one backed by
 	// an in-memory filesystem, which is what the batch runner and the tests
@@ -96,6 +105,10 @@ type Sim struct {
 	// committed is the offset the projections group was last committed to.
 	// See Committed for why it is cached rather than read.
 	committed int64
+
+	// state is the run's lifecycle, owned by the engine and recorded here so
+	// snapshots carry it. A Sim never acts on it.
+	state string
 }
 
 // New creates a simulation positioned at tick zero.
@@ -142,6 +155,13 @@ func New(cfg Config) (*Sim, error) {
 		committed: committed,
 	}, nil
 }
+
+// SetState records the run's lifecycle so the next snapshot carries it. The
+// engine owns the transitions; the simulation only writes them down.
+func (s *Sim) SetState(state string) { s.state = state }
+
+// State returns the lifecycle the last caller recorded.
+func (s *Sim) State() string { return s.state }
 
 // Close releases the run's log. It is safe to call more than once.
 func (s *Sim) Close() error {
