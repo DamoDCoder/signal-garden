@@ -12,9 +12,14 @@
 //
 // Every field carries an explicit json_name. The JSON these messages produce is
 // the public shape, and leaving it to the marshaler's default would mean the
-// wire names lived in a Go flag rather than here. Note that int64 fields encode
-// as JSON *strings*: that is the protobuf JSON mapping, not a choice, and it is
-// uniform across both transports so nothing has to guess.
+// wire names lived in a Go flag rather than here.
+//
+// 64-bit fields encode as JSON *strings*. That is the protobuf JSON mapping and
+// not a choice — JSON numbers lose precision above 2^53 — and it is uniform
+// across both transports, so nothing has to guess which one a value came from.
+// What a client should do with one is declared per field with jstype:
+// JS_NUMBER for bounded quantities it does arithmetic on, JS_STRING for opaque
+// tokens. seed is the only token here. See docs/decisions/0012.
 syntax = "proto3";
 
 package signal.garden.v1;
@@ -51,17 +56,17 @@ message Controls {
 // Run is the lifecycle view of a simulation.
 message Run {
   string run_id = 1 [json_name = "run_id"];
-  int64 seed = 2 [json_name = "seed"];
+  int64 seed = 2 [json_name = "seed", jstype = JS_STRING];
   int32 organisms = 3 [json_name = "organisms"];
   RunState state = 4 [json_name = "state"];
 
   // tick counts completed simulation ticks. It is simulation time, and it is
   // the only clock replay reproduces.
-  int64 tick = 5 [json_name = "tick"];
+  int64 tick = 5 [json_name = "tick", jstype = JS_NUMBER];
 
   // max_ticks finishes the run automatically once reached. Zero runs until
   // FinishRun is called.
-  int64 max_ticks = 6 [json_name = "max_ticks"];
+  int64 max_ticks = 6 [json_name = "max_ticks", jstype = JS_NUMBER];
 
   // tick_interval is the wall-clock pace of the run. It affects how fast a
   // player sees the garden change, never where the garden ends up.
@@ -105,8 +110,8 @@ message GardenStats {
 // one it receives to learn how far behind it fell.
 message GardenSnapshot {
   string run_id = 1 [json_name = "run_id"];
-  int64 sequence = 2 [json_name = "sequence"];
-  int64 tick = 3 [json_name = "tick"];
+  int64 sequence = 2 [json_name = "sequence", jstype = JS_NUMBER];
+  int64 tick = 3 [json_name = "tick", jstype = JS_NUMBER];
   int32 revision = 4 [json_name = "revision"];
   RunState state = 5 [json_name = "state"];
   GardenStats stats = 6 [json_name = "stats"];
@@ -122,17 +127,17 @@ message GardenSnapshot {
   // folded_offset is the offset of the first log record this garden has not
   // folded, so it is the position a reconnecting client asks to resume from.
   // Sequence orders frames; this names the history behind one.
-  int64 folded_offset = 11 [json_name = "folded_offset"];
+  int64 folded_offset = 11 [json_name = "folded_offset", jstype = JS_NUMBER];
 }
 
 // ProcessorStats counts what the processor did with the events it received.
 message ProcessorStats {
-  int64 received = 1 [json_name = "received"];
-  int64 applied = 2 [json_name = "applied"];
-  int64 no_effect = 3 [json_name = "no_effect"];
-  int64 duplicates = 4 [json_name = "duplicates"];
-  int64 rejected = 5 [json_name = "rejected"];
-  int64 unknown_entity = 6 [json_name = "unknown_entity"];
+  int64 received = 1 [json_name = "received", jstype = JS_NUMBER];
+  int64 applied = 2 [json_name = "applied", jstype = JS_NUMBER];
+  int64 no_effect = 3 [json_name = "no_effect", jstype = JS_NUMBER];
+  int64 duplicates = 4 [json_name = "duplicates", jstype = JS_NUMBER];
+  int64 rejected = 5 [json_name = "rejected", jstype = JS_NUMBER];
+  int64 unknown_entity = 6 [json_name = "unknown_entity", jstype = JS_NUMBER];
   map<string, int64> by_type = 7 [json_name = "by_type"];
 }
 
@@ -141,31 +146,31 @@ message ProcessorStats {
 message TelemetrySnapshot {
   string run_id = 1 [json_name = "run_id"];
   RunState state = 2 [json_name = "state"];
-  int64 tick = 3 [json_name = "tick"];
+  int64 tick = 3 [json_name = "tick", jstype = JS_NUMBER];
   int32 revision = 4 [json_name = "revision"];
   google.protobuf.Duration tick_interval = 5 [json_name = "tick_interval"];
-  int64 published = 6 [json_name = "published"];
+  int64 published = 6 [json_name = "published", jstype = JS_NUMBER];
   ProcessorStats processor = 7 [json_name = "processor"];
 
   // pending is events published but not yet processed. It is zero while the
   // processor drains inside the tick, and is consumer lag from M2.
-  int64 pending = 8 [json_name = "pending"];
+  int64 pending = 8 [json_name = "pending", jstype = JS_NUMBER];
 
   int32 subscribers = 9 [json_name = "subscribers"];
-  int64 snapshots_sent = 10 [json_name = "snapshots_sent"];
-  int64 snapshots_dropped = 11 [json_name = "snapshots_dropped"];
+  int64 snapshots_sent = 10 [json_name = "snapshots_sent", jstype = JS_NUMBER];
+  int64 snapshots_dropped = 11 [json_name = "snapshots_dropped", jstype = JS_NUMBER];
   google.protobuf.Duration uptime = 12 [json_name = "uptime"];
   google.protobuf.Timestamp observed_at = 13 [json_name = "observed_at"];
   int32 schema_version = 14 [json_name = "schema_version"];
 
   // log_offset is the offset the run's log will assign to the next record,
   // which is also how many records it holds.
-  int64 log_offset = 15 [json_name = "log_offset"];
+  int64 log_offset = 15 [json_name = "log_offset", jstype = JS_NUMBER];
 
   // committed_offset is how far the projections group has durably folded: the
   // position a restart resumes from. It moves at snapshot cadence rather than
   // per tick, so it trails log_offset by design.
-  int64 committed_offset = 16 [json_name = "committed_offset"];
+  int64 committed_offset = 16 [json_name = "committed_offset", jstype = JS_NUMBER];
 }
 
 // EventPayload carries typed event data. Amount is the magnitude for rain,
@@ -192,11 +197,11 @@ message Event {
   string run_id = 4 [json_name = "run_id"];
   string entity_id = 5 [json_name = "entity_id"];
   string partition_key = 6 [json_name = "partition_key"];
-  int64 sequence = 7 [json_name = "sequence"];
+  int64 sequence = 7 [json_name = "sequence", jstype = JS_NUMBER];
 
   // occurred_at is simulation time — the tick that produced the event. It may
   // influence outcomes, which is why replay reproduces it.
-  int64 occurred_at = 8 [json_name = "occurred_at"];
+  int64 occurred_at = 8 [json_name = "occurred_at", jstype = JS_NUMBER];
 
   // attempt counts deliveries, starting at 1. A redelivery is the same event
   // with a higher attempt, and the processor deduplicates on the idempotency
@@ -222,8 +227,8 @@ enum FrameType {
 // folded_offset; anything else is a record the client never sees or one it
 // sees twice.
 message Catchup {
-  int64 from = 1 [json_name = "from"];
-  int64 to = 2 [json_name = "to"];
+  int64 from = 1 [json_name = "from", jstype = JS_NUMBER];
+  int64 to = 2 [json_name = "to", jstype = JS_NUMBER];
   repeated Event events = 3 [json_name = "events"];
 }
 
@@ -252,7 +257,7 @@ message ControlRevision {
   // controls. A change accepted partway through a tick lands on the next
   // boundary, so this number is what replay needs; acceptance wall-clock time
   // is not part of the simulation.
-  int64 effective_tick = 4 [json_name = "effective_tick"];
+  int64 effective_tick = 4 [json_name = "effective_tick", jstype = JS_NUMBER];
 }
 
 // RunSummary is the scorecard a finished run leaves behind.
@@ -265,11 +270,11 @@ message RunSummary {
 message StartRunRequest {
   // run_id is optional. The service generates one when it is empty.
   string run_id = 1 [json_name = "run_id"];
-  int64 seed = 2 [json_name = "seed"];
+  int64 seed = 2 [json_name = "seed", jstype = JS_STRING];
   int32 organisms = 3 [json_name = "organisms"];
   Controls controls = 4 [json_name = "controls"];
   google.protobuf.Duration tick_interval = 5 [json_name = "tick_interval"];
-  int64 max_ticks = 6 [json_name = "max_ticks"];
+  int64 max_ticks = 6 [json_name = "max_ticks", jstype = JS_NUMBER];
 
   // duplicate_every republishes every Nth event of a tick, which makes the
   // idempotency demo a control rather than a test-only code path.
