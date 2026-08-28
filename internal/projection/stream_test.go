@@ -259,6 +259,33 @@ func TestStreamClosesWhenTheRunFinishes(t *testing.T) {
 	}
 }
 
+// TestStreamClosesGoingAwayWhenTheRegistryShutsDown is the regression for the
+// bug this session's M2 reconnect demo actually found: docker compose stop
+// closed every open stream with CloseNormalClosure ("run finished") even
+// though the run was mid-run and came right back on restart. A client reading
+// only the close code — the one thing a browser's CloseEvent reliably exposes
+// — could not tell that from a run genuinely ending, so it gave up instead of
+// reconnecting.
+func TestStreamClosesGoingAwayWhenTheRegistryShutsDown(t *testing.T) {
+	reg, clock, base := newHarness(t)
+	clock.Tick(1)
+
+	conn := dial(t, base+"/v1/runs/run-test/stream")
+	readFrame(t, conn)
+
+	if err := reg.Close(); err != nil {
+		t.Fatalf("Close registry: %v", err)
+	}
+
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline: %v", err)
+	}
+	_, _, err := conn.ReadMessage()
+	if !websocket.IsCloseError(err, websocket.CloseGoingAway) {
+		t.Errorf("read after registry shutdown: err = %v, want going-away, not the finished run's code", err)
+	}
+}
+
 func TestStreamRefusesBadRequests(t *testing.T) {
 	_, clock, base := newHarness(t)
 	clock.Tick(1)

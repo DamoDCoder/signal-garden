@@ -150,7 +150,8 @@ func writeError(w http.ResponseWriter, err error) {
 
 // pump forwards frames until the run closes the subscription or the connection
 // fails, then closes the stream cleanly so a client can tell a finished run
-// from a dropped one.
+// from a dropped one — and, separately, tell either of those from the daemon
+// going away out from under a run that has not finished at all.
 func pump(conn *websocket.Conn, runID string, sub *engine.Subscription) {
 	ping := time.NewTicker(pingEvery)
 	defer ping.Stop()
@@ -160,8 +161,8 @@ func pump(conn *websocket.Conn, runID string, sub *engine.Subscription) {
 		case snap, ok := <-sub.Snapshots():
 			if !ok {
 				_ = conn.SetWriteDeadline(time.Now().Add(writeWait))
-				_ = conn.WriteMessage(websocket.CloseMessage,
-					websocket.FormatCloseMessage(websocket.CloseNormalClosure, "run finished"))
+				code, reason := closeFor(sub.ClosedReason())
+				_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason))
 				return
 			}
 			if err := write(conn, wire.SnapshotFrame(runID, snap)); err != nil {
@@ -174,6 +175,19 @@ func pump(conn *websocket.Conn, runID string, sub *engine.Subscription) {
 			}
 		}
 	}
+}
+
+// closeFor picks the WebSocket close code a client can actually branch on.
+// 1000 (normal closure) is the one code a browser's CloseEvent reliably
+// exposes, so it has to mean only one thing: this run is over. Shutdown gets
+// 1001 (going away) instead — the standard code for "the server is leaving,
+// not the resource" — so a client's existing drop-and-reconnect path picks
+// it up correctly with no special case, since 1001 is simply not 1000.
+func closeFor(reason engine.SubscriptionClosedReason) (int, string) {
+	if reason == engine.SubscriptionClosedRegistryShutdown {
+		return websocket.CloseGoingAway, "daemon shutting down"
+	}
+	return websocket.CloseNormalClosure, "run finished"
 }
 
 // drain reads and discards whatever the client sends. Nothing a client says on

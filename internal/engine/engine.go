@@ -273,6 +273,22 @@ type RunSummary struct {
 	Telemetry TelemetrySnapshot `json:"telemetry"`
 }
 
+// SubscriptionClosedReason says why a subscription's channel closed. A
+// transport needs this to report something more honest than "the run
+// finished" — true for only one of the two reasons this ever happens, and
+// false the other, misleadingly, this session's whole point.
+type SubscriptionClosedReason int
+
+const (
+	// SubscriptionClosedRunFinished: the run reached its end. Terminal — a
+	// client should not expect this run to come back.
+	SubscriptionClosedRunFinished SubscriptionClosedReason = iota
+	// SubscriptionClosedRegistryShutdown: the daemon is going away, not the
+	// run. A restarted daemon resumes it, so a client should reconnect
+	// rather than treat this the way it treats a finished run.
+	SubscriptionClosedRegistryShutdown
+)
+
 // Subscription is a live projection stream for one run. The channel closes
 // when the run finishes or the subscription is closed.
 type Subscription struct {
@@ -280,10 +296,20 @@ type Subscription struct {
 	ch   chan GardenSnapshot
 	run  *liveRun
 	once sync.Once
+
+	// reason is written once, by the run's own goroutine, strictly before
+	// ch is closed — so a receiver that observes the close via Snapshots()
+	// is safe to read it without further synchronization, same as any other
+	// close-as-broadcast pattern.
+	reason SubscriptionClosedReason
 }
 
 // Snapshots returns the frame channel.
 func (s *Subscription) Snapshots() <-chan GardenSnapshot { return s.ch }
+
+// ClosedReason says why Snapshots() closed. Meaningful only after it has;
+// undefined (zero value) while the subscription is still open.
+func (s *Subscription) ClosedReason() SubscriptionClosedReason { return s.reason }
 
 // Close detaches the subscriber. It is safe to call more than once, and safe
 // to call after the run has finished.
@@ -965,7 +991,7 @@ func (r *liveRun) loop() {
 			cmd(r)
 		case <-r.quit:
 			r.stopTicker()
-			r.closeSubs()
+			r.closeSubs(SubscriptionClosedRegistryShutdown)
 			return
 		}
 	}
@@ -1017,7 +1043,7 @@ func (r *liveRun) finish() {
 
 	r.stopTicker()
 	r.publish()
-	r.closeSubs()
+	r.closeSubs(SubscriptionClosedRunFinished)
 }
 
 func (r *liveRun) stopTicker() {
@@ -1056,9 +1082,10 @@ func (r *liveRun) removeSub(id int) {
 	close(s.ch)
 }
 
-func (r *liveRun) closeSubs() {
+func (r *liveRun) closeSubs(reason SubscriptionClosedReason) {
 	for id, s := range r.subs {
 		delete(r.subs, id)
+		s.reason = reason
 		close(s.ch)
 	}
 }
