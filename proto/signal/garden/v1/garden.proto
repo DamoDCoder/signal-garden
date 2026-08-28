@@ -291,6 +291,15 @@ message GetRunRequest {
   string run_id = 1 [json_name = "run_id"];
 }
 
+// ListRunsRequest takes no filter yet. The registry holds every run the
+// daemon has open in memory — started here or recovered on startup — and
+// that is small enough at M1's scale to return whole.
+message ListRunsRequest {}
+
+message ListRunsResponse {
+  repeated Run runs = 1 [json_name = "runs"];
+}
+
 message UpdateControlsRequest {
   string run_id = 1 [json_name = "run_id"];
   Controls controls = 2 [json_name = "controls"];
@@ -329,6 +338,12 @@ service GardenService {
 
   rpc GetRun(GetRunRequest) returns (Run) {
     option (google.api.http) = {get: "/v1/runs/{run_id}"};
+  }
+
+  // ListRuns is what makes a restarted daemon's recovered runs discoverable
+  // from a browser: without it, watching a run means already knowing its ID.
+  rpc ListRuns(ListRunsRequest) returns (ListRunsResponse) {
+    option (google.api.http) = {get: "/v1/runs"};
   }
 
   rpc UpdateControls(UpdateControlsRequest) returns (ControlRevision) {

@@ -44,6 +44,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	GardenService_StartRun_FullMethodName       = "/signal.garden.v1.GardenService/StartRun"
 	GardenService_GetRun_FullMethodName         = "/signal.garden.v1.GardenService/GetRun"
+	GardenService_ListRuns_FullMethodName       = "/signal.garden.v1.GardenService/ListRuns"
 	GardenService_UpdateControls_FullMethodName = "/signal.garden.v1.GardenService/UpdateControls"
 	GardenService_PauseRun_FullMethodName       = "/signal.garden.v1.GardenService/PauseRun"
 	GardenService_FinishRun_FullMethodName      = "/signal.garden.v1.GardenService/FinishRun"
@@ -61,6 +62,9 @@ const (
 type GardenServiceClient interface {
 	StartRun(ctx context.Context, in *StartRunRequest, opts ...grpc.CallOption) (*Run, error)
 	GetRun(ctx context.Context, in *GetRunRequest, opts ...grpc.CallOption) (*Run, error)
+	// ListRuns is what makes a restarted daemon's recovered runs discoverable
+	// from a browser: without it, watching a run means already knowing its ID.
+	ListRuns(ctx context.Context, in *ListRunsRequest, opts ...grpc.CallOption) (*ListRunsResponse, error)
 	UpdateControls(ctx context.Context, in *UpdateControlsRequest, opts ...grpc.CallOption) (*ControlRevision, error)
 	PauseRun(ctx context.Context, in *PauseRunRequest, opts ...grpc.CallOption) (*Run, error)
 	FinishRun(ctx context.Context, in *FinishRunRequest, opts ...grpc.CallOption) (*RunSummary, error)
@@ -90,6 +94,16 @@ func (c *gardenServiceClient) GetRun(ctx context.Context, in *GetRunRequest, opt
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Run)
 	err := c.cc.Invoke(ctx, GardenService_GetRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gardenServiceClient) ListRuns(ctx context.Context, in *ListRunsRequest, opts ...grpc.CallOption) (*ListRunsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRunsResponse)
+	err := c.cc.Invoke(ctx, GardenService_ListRuns_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -156,6 +170,9 @@ func (c *gardenServiceClient) GetTelemetry(ctx context.Context, in *GetTelemetry
 type GardenServiceServer interface {
 	StartRun(context.Context, *StartRunRequest) (*Run, error)
 	GetRun(context.Context, *GetRunRequest) (*Run, error)
+	// ListRuns is what makes a restarted daemon's recovered runs discoverable
+	// from a browser: without it, watching a run means already knowing its ID.
+	ListRuns(context.Context, *ListRunsRequest) (*ListRunsResponse, error)
 	UpdateControls(context.Context, *UpdateControlsRequest) (*ControlRevision, error)
 	PauseRun(context.Context, *PauseRunRequest) (*Run, error)
 	FinishRun(context.Context, *FinishRunRequest) (*RunSummary, error)
@@ -176,6 +193,9 @@ func (UnimplementedGardenServiceServer) StartRun(context.Context, *StartRunReque
 }
 func (UnimplementedGardenServiceServer) GetRun(context.Context, *GetRunRequest) (*Run, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetRun not implemented")
+}
+func (UnimplementedGardenServiceServer) ListRuns(context.Context, *ListRunsRequest) (*ListRunsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListRuns not implemented")
 }
 func (UnimplementedGardenServiceServer) UpdateControls(context.Context, *UpdateControlsRequest) (*ControlRevision, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateControls not implemented")
@@ -245,6 +265,24 @@ func _GardenService_GetRun_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(GardenServiceServer).GetRun(ctx, req.(*GetRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GardenService_ListRuns_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRunsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GardenServiceServer).ListRuns(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GardenService_ListRuns_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GardenServiceServer).ListRuns(ctx, req.(*ListRunsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -353,6 +391,10 @@ var GardenService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetRun",
 			Handler:    _GardenService_GetRun_Handler,
+		},
+		{
+			MethodName: "ListRuns",
+			Handler:    _GardenService_ListRuns_Handler,
 		},
 		{
 			MethodName: "UpdateControls",

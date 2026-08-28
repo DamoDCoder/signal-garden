@@ -62,6 +62,18 @@ func (g *Garden) GetRun(_ context.Context, req *gardenv1.GetRunRequest) (*garden
 	return wire.Run(run), nil
 }
 
+// ListRuns returns every run the registry currently holds open — started
+// here or recovered on startup — so a client can discover a run without
+// already knowing its ID.
+func (g *Garden) ListRuns(_ context.Context, _ *gardenv1.ListRunsRequest) (*gardenv1.ListRunsResponse, error) {
+	runs := g.runs.ListRuns()
+	out := make([]*gardenv1.Run, 0, len(runs))
+	for _, run := range runs {
+		out = append(out, wire.Run(run))
+	}
+	return &gardenv1.ListRunsResponse{Runs: out}, nil
+}
+
 // UpdateControls stages a control change and returns its revision. The change
 // takes effect at the tick named in the response, never partway through one.
 func (g *Garden) UpdateControls(_ context.Context, req *gardenv1.UpdateControlsRequest) (*gardenv1.ControlRevision, error) {

@@ -1549,6 +1549,89 @@ func (x *GetRunRequest) GetRunId() string {
 	return ""
 }
 
+// ListRunsRequest takes no filter yet. The registry holds every run the
+// daemon has open in memory — started here or recovered on startup — and
+// that is small enough at M1's scale to return whole.
+type ListRunsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRunsRequest) Reset() {
+	*x = ListRunsRequest{}
+	mi := &file_signal_garden_v1_garden_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRunsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRunsRequest) ProtoMessage() {}
+
+func (x *ListRunsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_signal_garden_v1_garden_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRunsRequest.ProtoReflect.Descriptor instead.
+func (*ListRunsRequest) Descriptor() ([]byte, []int) {
+	return file_signal_garden_v1_garden_proto_rawDescGZIP(), []int{15}
+}
+
+type ListRunsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Runs          []*Run                 `protobuf:"bytes,1,rep,name=runs,proto3" json:"runs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRunsResponse) Reset() {
+	*x = ListRunsResponse{}
+	mi := &file_signal_garden_v1_garden_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRunsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRunsResponse) ProtoMessage() {}
+
+func (x *ListRunsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_signal_garden_v1_garden_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRunsResponse.ProtoReflect.Descriptor instead.
+func (*ListRunsResponse) Descriptor() ([]byte, []int) {
+	return file_signal_garden_v1_garden_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ListRunsResponse) GetRuns() []*Run {
+	if x != nil {
+		return x.Runs
+	}
+	return nil
+}
+
 type UpdateControlsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,proto3" json:"run_id,omitempty"`
@@ -1559,7 +1642,7 @@ type UpdateControlsRequest struct {
 
 func (x *UpdateControlsRequest) Reset() {
 	*x = UpdateControlsRequest{}
-	mi := &file_signal_garden_v1_garden_proto_msgTypes[15]
+	mi := &file_signal_garden_v1_garden_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1571,7 +1654,7 @@ func (x *UpdateControlsRequest) String() string {
 func (*UpdateControlsRequest) ProtoMessage() {}
 
 func (x *UpdateControlsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_signal_garden_v1_garden_proto_msgTypes[15]
+	mi := &file_signal_garden_v1_garden_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1584,7 +1667,7 @@ func (x *UpdateControlsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateControlsRequest.ProtoReflect.Descriptor instead.
 func (*UpdateControlsRequest) Descriptor() ([]byte, []int) {
-	return file_signal_garden_v1_garden_proto_rawDescGZIP(), []int{15}
+	return file_signal_garden_v1_garden_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *UpdateControlsRequest) GetRunId() string {
@@ -1614,7 +1697,7 @@ type PauseRunRequest struct {
 
 func (x *PauseRunRequest) Reset() {
 	*x = PauseRunRequest{}
-	mi := &file_signal_garden_v1_garden_proto_msgTypes[16]
+	mi := &file_signal_garden_v1_garden_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1626,7 +1709,7 @@ func (x *PauseRunRequest) String() string {
 func (*PauseRunRequest) ProtoMessage() {}
 
 func (x *PauseRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_signal_garden_v1_garden_proto_msgTypes[16]
+	mi := &file_signal_garden_v1_garden_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1639,7 +1722,7 @@ func (x *PauseRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PauseRunRequest.ProtoReflect.Descriptor instead.
 func (*PauseRunRequest) Descriptor() ([]byte, []int) {
-	return file_signal_garden_v1_garden_proto_rawDescGZIP(), []int{16}
+	return file_signal_garden_v1_garden_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *PauseRunRequest) GetRunId() string {
@@ -1665,7 +1748,7 @@ type FinishRunRequest struct {
 
 func (x *FinishRunRequest) Reset() {
 	*x = FinishRunRequest{}
-	mi := &file_signal_garden_v1_garden_proto_msgTypes[17]
+	mi := &file_signal_garden_v1_garden_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1677,7 +1760,7 @@ func (x *FinishRunRequest) String() string {
 func (*FinishRunRequest) ProtoMessage() {}
 
 func (x *FinishRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_signal_garden_v1_garden_proto_msgTypes[17]
+	mi := &file_signal_garden_v1_garden_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1690,7 +1773,7 @@ func (x *FinishRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinishRunRequest.ProtoReflect.Descriptor instead.
 func (*FinishRunRequest) Descriptor() ([]byte, []int) {
-	return file_signal_garden_v1_garden_proto_rawDescGZIP(), []int{17}
+	return file_signal_garden_v1_garden_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *FinishRunRequest) GetRunId() string {
@@ -1709,7 +1792,7 @@ type GetSnapshotRequest struct {
 
 func (x *GetSnapshotRequest) Reset() {
 	*x = GetSnapshotRequest{}
-	mi := &file_signal_garden_v1_garden_proto_msgTypes[18]
+	mi := &file_signal_garden_v1_garden_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1721,7 +1804,7 @@ func (x *GetSnapshotRequest) String() string {
 func (*GetSnapshotRequest) ProtoMessage() {}
 
 func (x *GetSnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_signal_garden_v1_garden_proto_msgTypes[18]
+	mi := &file_signal_garden_v1_garden_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1734,7 +1817,7 @@ func (x *GetSnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSnapshotRequest.ProtoReflect.Descriptor instead.
 func (*GetSnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_signal_garden_v1_garden_proto_rawDescGZIP(), []int{18}
+	return file_signal_garden_v1_garden_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *GetSnapshotRequest) GetRunId() string {
@@ -1753,7 +1836,7 @@ type GetTelemetryRequest struct {
 
 func (x *GetTelemetryRequest) Reset() {
 	*x = GetTelemetryRequest{}
-	mi := &file_signal_garden_v1_garden_proto_msgTypes[19]
+	mi := &file_signal_garden_v1_garden_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1765,7 +1848,7 @@ func (x *GetTelemetryRequest) String() string {
 func (*GetTelemetryRequest) ProtoMessage() {}
 
 func (x *GetTelemetryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_signal_garden_v1_garden_proto_msgTypes[19]
+	mi := &file_signal_garden_v1_garden_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1778,7 +1861,7 @@ func (x *GetTelemetryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTelemetryRequest.ProtoReflect.Descriptor instead.
 func (*GetTelemetryRequest) Descriptor() ([]byte, []int) {
-	return file_signal_garden_v1_garden_proto_rawDescGZIP(), []int{19}
+	return file_signal_garden_v1_garden_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *GetTelemetryRequest) GetRunId() string {
@@ -1922,7 +2005,10 @@ const file_signal_garden_v1_garden_proto_rawDesc = "" +
 	"\tmax_ticks\x18\x06 \x01(\x03B\x020\x02R\tmax_ticks\x12(\n" +
 	"\x0fduplicate_every\x18\a \x01(\x05R\x0fduplicate_every\"'\n" +
 	"\rGetRunRequest\x12\x16\n" +
-	"\x06run_id\x18\x01 \x01(\tR\x06run_id\"g\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x06run_id\"\x11\n" +
+	"\x0fListRunsRequest\"=\n" +
+	"\x10ListRunsResponse\x12)\n" +
+	"\x04runs\x18\x01 \x03(\v2\x15.signal.garden.v1.RunR\x04runs\"g\n" +
 	"\x15UpdateControlsRequest\x12\x16\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x06run_id\x126\n" +
 	"\bcontrols\x18\x02 \x01(\v2\x1a.signal.garden.v1.ControlsR\bcontrols\"A\n" +
@@ -1943,10 +2029,12 @@ const file_signal_garden_v1_garden_proto_rawDesc = "" +
 	"\tFrameType\x12\x1a\n" +
 	"\x16FRAME_TYPE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13FRAME_TYPE_SNAPSHOT\x10\x01\x12\x16\n" +
-	"\x12FRAME_TYPE_CATCHUP\x10\x022\xae\x06\n" +
+	"\x12FRAME_TYPE_CATCHUP\x10\x022\x93\a\n" +
 	"\rGardenService\x12Y\n" +
 	"\bStartRun\x12!.signal.garden.v1.StartRunRequest\x1a\x15.signal.garden.v1.Run\"\x13\x82\xd3\xe4\x93\x02\r:\x01*\"\b/v1/runs\x12[\n" +
-	"\x06GetRun\x12\x1f.signal.garden.v1.GetRunRequest\x1a\x15.signal.garden.v1.Run\"\x19\x82\xd3\xe4\x93\x02\x13\x12\x11/v1/runs/{run_id}\x12\x8a\x01\n" +
+	"\x06GetRun\x12\x1f.signal.garden.v1.GetRunRequest\x1a\x15.signal.garden.v1.Run\"\x19\x82\xd3\xe4\x93\x02\x13\x12\x11/v1/runs/{run_id}\x12c\n" +
+	"\bListRuns\x12!.signal.garden.v1.ListRunsRequest\x1a\".signal.garden.v1.ListRunsResponse\"\x10\x82\xd3\xe4\x93\x02\n" +
+	"\x12\b/v1/runs\x12\x8a\x01\n" +
 	"\x0eUpdateControls\x12'.signal.garden.v1.UpdateControlsRequest\x1a!.signal.garden.v1.ControlRevision\",\x82\xd3\xe4\x93\x02&:\bcontrols2\x1a/v1/runs/{run_id}/controls\x12h\n" +
 	"\bPauseRun\x12!.signal.garden.v1.PauseRunRequest\x1a\x15.signal.garden.v1.Run\"\"\x82\xd3\xe4\x93\x02\x1c:\x01*\"\x17/v1/runs/{run_id}:pause\x12r\n" +
 	"\tFinishRun\x12\".signal.garden.v1.FinishRunRequest\x1a\x1c.signal.garden.v1.RunSummary\"#\x82\xd3\xe4\x93\x02\x1d:\x01*\"\x18/v1/runs/{run_id}:finish\x12y\n" +
@@ -1966,7 +2054,7 @@ func file_signal_garden_v1_garden_proto_rawDescGZIP() []byte {
 }
 
 var file_signal_garden_v1_garden_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_signal_garden_v1_garden_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_signal_garden_v1_garden_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_signal_garden_v1_garden_proto_goTypes = []any{
 	(RunState)(0),                 // 0: signal.garden.v1.RunState
 	(FrameType)(0),                // 1: signal.garden.v1.FrameType
@@ -1985,32 +2073,34 @@ var file_signal_garden_v1_garden_proto_goTypes = []any{
 	(*RunSummary)(nil),            // 14: signal.garden.v1.RunSummary
 	(*StartRunRequest)(nil),       // 15: signal.garden.v1.StartRunRequest
 	(*GetRunRequest)(nil),         // 16: signal.garden.v1.GetRunRequest
-	(*UpdateControlsRequest)(nil), // 17: signal.garden.v1.UpdateControlsRequest
-	(*PauseRunRequest)(nil),       // 18: signal.garden.v1.PauseRunRequest
-	(*FinishRunRequest)(nil),      // 19: signal.garden.v1.FinishRunRequest
-	(*GetSnapshotRequest)(nil),    // 20: signal.garden.v1.GetSnapshotRequest
-	(*GetTelemetryRequest)(nil),   // 21: signal.garden.v1.GetTelemetryRequest
-	nil,                           // 22: signal.garden.v1.ProcessorStats.ByTypeEntry
-	(*durationpb.Duration)(nil),   // 23: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil), // 24: google.protobuf.Timestamp
+	(*ListRunsRequest)(nil),       // 17: signal.garden.v1.ListRunsRequest
+	(*ListRunsResponse)(nil),      // 18: signal.garden.v1.ListRunsResponse
+	(*UpdateControlsRequest)(nil), // 19: signal.garden.v1.UpdateControlsRequest
+	(*PauseRunRequest)(nil),       // 20: signal.garden.v1.PauseRunRequest
+	(*FinishRunRequest)(nil),      // 21: signal.garden.v1.FinishRunRequest
+	(*GetSnapshotRequest)(nil),    // 22: signal.garden.v1.GetSnapshotRequest
+	(*GetTelemetryRequest)(nil),   // 23: signal.garden.v1.GetTelemetryRequest
+	nil,                           // 24: signal.garden.v1.ProcessorStats.ByTypeEntry
+	(*durationpb.Duration)(nil),   // 25: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil), // 26: google.protobuf.Timestamp
 }
 var file_signal_garden_v1_garden_proto_depIdxs = []int32{
 	0,  // 0: signal.garden.v1.Run.state:type_name -> signal.garden.v1.RunState
-	23, // 1: signal.garden.v1.Run.tick_interval:type_name -> google.protobuf.Duration
+	25, // 1: signal.garden.v1.Run.tick_interval:type_name -> google.protobuf.Duration
 	2,  // 2: signal.garden.v1.Run.controls:type_name -> signal.garden.v1.Controls
-	24, // 3: signal.garden.v1.Run.started_at:type_name -> google.protobuf.Timestamp
-	24, // 4: signal.garden.v1.Run.updated_at:type_name -> google.protobuf.Timestamp
-	24, // 5: signal.garden.v1.Run.finished_at:type_name -> google.protobuf.Timestamp
+	26, // 3: signal.garden.v1.Run.started_at:type_name -> google.protobuf.Timestamp
+	26, // 4: signal.garden.v1.Run.updated_at:type_name -> google.protobuf.Timestamp
+	26, // 5: signal.garden.v1.Run.finished_at:type_name -> google.protobuf.Timestamp
 	0,  // 6: signal.garden.v1.GardenSnapshot.state:type_name -> signal.garden.v1.RunState
 	5,  // 7: signal.garden.v1.GardenSnapshot.stats:type_name -> signal.garden.v1.GardenStats
 	4,  // 8: signal.garden.v1.GardenSnapshot.organisms:type_name -> signal.garden.v1.Organism
-	24, // 9: signal.garden.v1.GardenSnapshot.observed_at:type_name -> google.protobuf.Timestamp
-	22, // 10: signal.garden.v1.ProcessorStats.by_type:type_name -> signal.garden.v1.ProcessorStats.ByTypeEntry
+	26, // 9: signal.garden.v1.GardenSnapshot.observed_at:type_name -> google.protobuf.Timestamp
+	24, // 10: signal.garden.v1.ProcessorStats.by_type:type_name -> signal.garden.v1.ProcessorStats.ByTypeEntry
 	0,  // 11: signal.garden.v1.TelemetrySnapshot.state:type_name -> signal.garden.v1.RunState
-	23, // 12: signal.garden.v1.TelemetrySnapshot.tick_interval:type_name -> google.protobuf.Duration
+	25, // 12: signal.garden.v1.TelemetrySnapshot.tick_interval:type_name -> google.protobuf.Duration
 	7,  // 13: signal.garden.v1.TelemetrySnapshot.processor:type_name -> signal.garden.v1.ProcessorStats
-	23, // 14: signal.garden.v1.TelemetrySnapshot.uptime:type_name -> google.protobuf.Duration
-	24, // 15: signal.garden.v1.TelemetrySnapshot.observed_at:type_name -> google.protobuf.Timestamp
+	25, // 14: signal.garden.v1.TelemetrySnapshot.uptime:type_name -> google.protobuf.Duration
+	26, // 15: signal.garden.v1.TelemetrySnapshot.observed_at:type_name -> google.protobuf.Timestamp
 	9,  // 16: signal.garden.v1.Event.payload:type_name -> signal.garden.v1.EventPayload
 	10, // 17: signal.garden.v1.Catchup.events:type_name -> signal.garden.v1.Event
 	1,  // 18: signal.garden.v1.ProjectionFrame.type:type_name -> signal.garden.v1.FrameType
@@ -2021,27 +2111,30 @@ var file_signal_garden_v1_garden_proto_depIdxs = []int32{
 	6,  // 23: signal.garden.v1.RunSummary.snapshot:type_name -> signal.garden.v1.GardenSnapshot
 	8,  // 24: signal.garden.v1.RunSummary.telemetry:type_name -> signal.garden.v1.TelemetrySnapshot
 	2,  // 25: signal.garden.v1.StartRunRequest.controls:type_name -> signal.garden.v1.Controls
-	23, // 26: signal.garden.v1.StartRunRequest.tick_interval:type_name -> google.protobuf.Duration
-	2,  // 27: signal.garden.v1.UpdateControlsRequest.controls:type_name -> signal.garden.v1.Controls
-	15, // 28: signal.garden.v1.GardenService.StartRun:input_type -> signal.garden.v1.StartRunRequest
-	16, // 29: signal.garden.v1.GardenService.GetRun:input_type -> signal.garden.v1.GetRunRequest
-	17, // 30: signal.garden.v1.GardenService.UpdateControls:input_type -> signal.garden.v1.UpdateControlsRequest
-	18, // 31: signal.garden.v1.GardenService.PauseRun:input_type -> signal.garden.v1.PauseRunRequest
-	19, // 32: signal.garden.v1.GardenService.FinishRun:input_type -> signal.garden.v1.FinishRunRequest
-	20, // 33: signal.garden.v1.GardenService.GetSnapshot:input_type -> signal.garden.v1.GetSnapshotRequest
-	21, // 34: signal.garden.v1.GardenService.GetTelemetry:input_type -> signal.garden.v1.GetTelemetryRequest
-	3,  // 35: signal.garden.v1.GardenService.StartRun:output_type -> signal.garden.v1.Run
-	3,  // 36: signal.garden.v1.GardenService.GetRun:output_type -> signal.garden.v1.Run
-	13, // 37: signal.garden.v1.GardenService.UpdateControls:output_type -> signal.garden.v1.ControlRevision
-	3,  // 38: signal.garden.v1.GardenService.PauseRun:output_type -> signal.garden.v1.Run
-	14, // 39: signal.garden.v1.GardenService.FinishRun:output_type -> signal.garden.v1.RunSummary
-	6,  // 40: signal.garden.v1.GardenService.GetSnapshot:output_type -> signal.garden.v1.GardenSnapshot
-	8,  // 41: signal.garden.v1.GardenService.GetTelemetry:output_type -> signal.garden.v1.TelemetrySnapshot
-	35, // [35:42] is the sub-list for method output_type
-	28, // [28:35] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	25, // 26: signal.garden.v1.StartRunRequest.tick_interval:type_name -> google.protobuf.Duration
+	3,  // 27: signal.garden.v1.ListRunsResponse.runs:type_name -> signal.garden.v1.Run
+	2,  // 28: signal.garden.v1.UpdateControlsRequest.controls:type_name -> signal.garden.v1.Controls
+	15, // 29: signal.garden.v1.GardenService.StartRun:input_type -> signal.garden.v1.StartRunRequest
+	16, // 30: signal.garden.v1.GardenService.GetRun:input_type -> signal.garden.v1.GetRunRequest
+	17, // 31: signal.garden.v1.GardenService.ListRuns:input_type -> signal.garden.v1.ListRunsRequest
+	19, // 32: signal.garden.v1.GardenService.UpdateControls:input_type -> signal.garden.v1.UpdateControlsRequest
+	20, // 33: signal.garden.v1.GardenService.PauseRun:input_type -> signal.garden.v1.PauseRunRequest
+	21, // 34: signal.garden.v1.GardenService.FinishRun:input_type -> signal.garden.v1.FinishRunRequest
+	22, // 35: signal.garden.v1.GardenService.GetSnapshot:input_type -> signal.garden.v1.GetSnapshotRequest
+	23, // 36: signal.garden.v1.GardenService.GetTelemetry:input_type -> signal.garden.v1.GetTelemetryRequest
+	3,  // 37: signal.garden.v1.GardenService.StartRun:output_type -> signal.garden.v1.Run
+	3,  // 38: signal.garden.v1.GardenService.GetRun:output_type -> signal.garden.v1.Run
+	18, // 39: signal.garden.v1.GardenService.ListRuns:output_type -> signal.garden.v1.ListRunsResponse
+	13, // 40: signal.garden.v1.GardenService.UpdateControls:output_type -> signal.garden.v1.ControlRevision
+	3,  // 41: signal.garden.v1.GardenService.PauseRun:output_type -> signal.garden.v1.Run
+	14, // 42: signal.garden.v1.GardenService.FinishRun:output_type -> signal.garden.v1.RunSummary
+	6,  // 43: signal.garden.v1.GardenService.GetSnapshot:output_type -> signal.garden.v1.GardenSnapshot
+	8,  // 44: signal.garden.v1.GardenService.GetTelemetry:output_type -> signal.garden.v1.TelemetrySnapshot
+	37, // [37:45] is the sub-list for method output_type
+	29, // [29:37] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_signal_garden_v1_garden_proto_init() }
@@ -2055,7 +2148,7 @@ func file_signal_garden_v1_garden_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_signal_garden_v1_garden_proto_rawDesc), len(file_signal_garden_v1_garden_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   21,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

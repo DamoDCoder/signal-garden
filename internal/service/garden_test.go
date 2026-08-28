@@ -129,6 +129,30 @@ func TestStartRunAndGetRun(t *testing.T) {
 	}
 }
 
+func TestListRuns(t *testing.T) {
+	client, _ := newHarness(t)
+
+	first := startRequest()
+	mustStart(t, client, first)
+
+	second := startRequest()
+	second.RunId = "run-test-2"
+	mustStart(t, client, second)
+
+	got, err := client.ListRuns(context.Background(), &gardenv1.ListRunsRequest{})
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+
+	ids := make(map[string]bool, len(got.GetRuns()))
+	for _, run := range got.GetRuns() {
+		ids[run.GetRunId()] = true
+	}
+	if !ids["run-test"] || !ids["run-test-2"] {
+		t.Errorf("run ids = %v, want both run-test and run-test-2", ids)
+	}
+}
+
 func TestStartRunGeneratesRunID(t *testing.T) {
 	client, _ := newHarness(t)
 
