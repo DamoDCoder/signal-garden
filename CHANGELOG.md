@@ -8,6 +8,14 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 Nothing yet.
 
+## [0.8.1] — 2026-08-28
+
+A daemon restart told every open browser the run it interrupted had finished.
+
+### Fixed
+
+- **Shutdown no longer lies about why a stream closed.** `Registry.Close` and a run genuinely finishing both close a subscription's channel the same way, and the gateway could not tell them apart, so both got `CloseNormalClosure` / "run finished" — including a run mid-tick that came right back on restart. `Subscription` now carries a `SubscriptionClosedReason` set before the channel closes; shutdown gets `CloseGoingAway` (1001), the standard code for "the server is leaving, not the resource." A client reading only the close code — the one thing a browser's `CloseEvent` reliably exposes — now gets an honest answer. `TestStreamClosesGoingAwayWhenTheRegistryShutsDown` is the regression. Found live-verifying app.signal-garden's M2 reconnect demo against a real `docker compose stop`, not a synthetic drop.
+
 ## [0.8.0] — 2026-08-28
 
 A restarted daemon's recovered runs were invisible from a browser — watching one meant already knowing its ID.
