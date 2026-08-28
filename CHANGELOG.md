@@ -8,6 +8,14 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 Nothing yet.
 
+## [0.8.0] — 2026-08-28
+
+A restarted daemon's recovered runs were invisible from a browser — watching one meant already knowing its ID.
+
+### Added
+
+- **`ListRuns` over gRPC and REST.** `GET /v1/runs` returns every run the registry currently holds open, started here or recovered on startup. `Registry.ListRuns` has existed since M2's recovery work but was reachable only from a test; this wires it to `GardenService` and the REST gateway, which is the half a client actually needed.
+
 ## [0.7.1] — 2026-08-25
 
 The daemon ships as a container image, so the client's stack has something to run.
