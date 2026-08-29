@@ -19,6 +19,7 @@ import (
 	"github.com/damodbear/signal-garden/internal/domain"
 	"github.com/damodbear/signal-garden/internal/event"
 	"github.com/damodbear/signal-garden/internal/eventlog"
+	"github.com/damodbear/signal-garden/internal/metrics"
 	"github.com/damodbear/signal-garden/internal/processor"
 	"github.com/damodbear/signal-garden/internal/producer"
 )
@@ -55,6 +56,13 @@ type Config struct {
 	// Passing a Log hands over its ownership. Sim closes it, because a run's
 	// log lives exactly as long as the run — see docs/decisions/0005.
 	Log *eventlog.Log
+
+	// Metrics is where this simulation's processor reports event outcomes. A
+	// nil Metrics records nothing — Fold and Rebuild's tail-folding leave it
+	// nil deliberately, because refolding recorded history is not new live
+	// activity and shouldn't inflate throughput metrics that describe the
+	// running system. See docs/decisions/0016.
+	Metrics *metrics.Recorder
 }
 
 // Validate checks the configuration before any state is created.
@@ -149,7 +157,7 @@ func New(cfg Config) (*Sim, error) {
 		garden:    garden,
 		prod:      prod,
 		log:       l,
-		proc:      processor.New(garden),
+		proc:      processor.New(garden, cfg.Metrics),
 		chain:     core.NewChain(),
 		controls:  cfg.Controls,
 		committed: committed,
@@ -388,7 +396,7 @@ func Fold(organisms int, events []event.Event) (*domain.Garden, processor.Stats,
 	if err != nil {
 		return nil, processor.Stats{}, err
 	}
-	proc := processor.New(garden)
+	proc := processor.New(garden, nil) // replay is a fold of history, not live activity
 	if err := proc.ProcessBatch(events); err != nil {
 		return nil, proc.Stats(), fmt.Errorf("replay %d events: %w", len(events), err)
 	}

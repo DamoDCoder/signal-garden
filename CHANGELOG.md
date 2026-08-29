@@ -8,6 +8,32 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 Nothing yet.
 
+## [0.9.0] — 2026-08-29
+
+M3's metrics foundation: a `GET /metrics` Prometheus scrape target.
+
+### Added
+
+- **`signal_garden_tick_duration_seconds`** (histogram) — wall-clock time to advance one run one
+  tick, observed around `Sim.Step()`.
+- **`signal_garden_rpc_duration_seconds`** (histogram, `method`/`code`) — every unary gRPC call,
+  which covers REST traffic too since the gateway dials gRPC over loopback rather than calling
+  in-process.
+- **`signal_garden_events_processed_total`** (counter, `outcome`) — one increment per event the
+  processor disposes of: applied, no_effect, duplicate, rejected, unknown_entity.
+- **`signal_garden_snapshots_dropped_total`** (counter) — projection frames dropped for a full
+  subscriber channel.
+- **`signal_garden_last_publish_timestamp_seconds`** (gauge) — set on every frame sent to a
+  subscriber; `time() - this` in PromQL is WebSocket freshness.
+- Standard Go and process collectors, registered alongside.
+
+None of the above carry a `run_id` label — deliberately, to keep Prometheus cardinality bounded.
+Per-run detail stays on the existing `GetTelemetry` poll. See
+[0016](docs/decisions/0016-prometheus-metrics-carry-no-run-id-label.md).
+
+`lag`, `retries`, OpenTelemetry traces, and the in-app performance view are still open — tracked in
+[docs/roadmap.md](docs/roadmap.md)'s M3 section.
+
 ## [0.8.1] — 2026-08-28
 
 A daemon restart told every open browser the run it interrupted had finished.

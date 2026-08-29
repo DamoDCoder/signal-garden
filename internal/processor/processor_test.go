@@ -13,7 +13,7 @@ func newProcessor(t *testing.T, organisms int) *Processor {
 	if err != nil {
 		t.Fatalf("NewGarden: %v", err)
 	}
-	return New(g)
+	return New(g, nil)
 }
 
 func rainEvent(id string, seq int64, amount int) event.Event {

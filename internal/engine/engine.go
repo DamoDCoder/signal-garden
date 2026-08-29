@@ -24,6 +24,7 @@ import (
 	"github.com/damodbear/signal-garden/internal/domain"
 	"github.com/damodbear/signal-garden/internal/event"
 	"github.com/damodbear/signal-garden/internal/eventlog"
+	"github.com/damodbear/signal-garden/internal/metrics"
 	"github.com/damodbear/signal-garden/internal/processor"
 	"github.com/damodbear/signal-garden/internal/sim"
 )
@@ -329,6 +330,7 @@ type Registry struct {
 	snapshot int64
 	openLog  LogOpener
 	corrupt  CorruptPolicy
+	metrics  *metrics.Recorder
 	runs     map[string]*liveRun
 	order    []string
 	nextID   int
@@ -363,6 +365,13 @@ func WithSnapshotEvery(ticks int64) Option {
 // WithCorruptPolicy chooses what happens when a run's log opens corrupt.
 func WithCorruptPolicy(p CorruptPolicy) Option {
 	return func(r *Registry) { r.corrupt = p }
+}
+
+// WithMetrics gives every run in this registry a Prometheus recorder. A
+// Registry with none records nothing — every metrics call in this package is
+// nil-receiver-safe.
+func WithMetrics(m *metrics.Recorder) Option {
+	return func(r *Registry) { r.metrics = m }
 }
 
 // NewRegistry returns an empty registry driven by the system clock.
@@ -424,6 +433,7 @@ func (g *Registry) StartRun(req StartRunRequest) (Run, error) {
 		SnapshotEvery:  req.SnapshotEvery,
 		MaxTicks:       req.MaxTicks,
 		TickInterval:   req.TickInterval,
+		Metrics:        g.metrics,
 		Log:            runLog,
 	})
 	if err != nil {
@@ -453,6 +463,7 @@ func (g *Registry) StartRun(req StartRunRequest) (Run, error) {
 		req:       req,
 		sim:       s,
 		clock:     g.clock,
+		metrics:   g.metrics,
 		recovered: recovered,
 		state:     StateRunning,
 		startedAt: now,
@@ -524,7 +535,7 @@ func (g *Registry) recoverOne(runID string) (Run, bool, error) {
 		return Run{}, false, fmt.Errorf("recover %s: %w", runID, err)
 	}
 
-	s, snapshot, err := sim.Resume(runID, runLog)
+	s, snapshot, err := sim.Resume(runID, runLog, g.metrics)
 	if err != nil {
 		_ = runLog.Close()
 		g.mu.Unlock()
@@ -566,6 +577,7 @@ func (g *Registry) recoverOne(runID string) (Run, bool, error) {
 		req:       req,
 		sim:       s,
 		clock:     g.clock,
+		metrics:   g.metrics,
 		recovered: recovered,
 		resumed:   true,
 		state:     state,
@@ -748,6 +760,7 @@ func (g *Registry) subscribe(runID string, buffer int, from int64, catchup bool)
 		}
 		sub.ch <- r.snapshot()
 		r.snapshotsSent++
+		r.metrics.ObservePublish()
 		if r.state == StateFinished {
 			// Nothing will ever feed this subscriber, so close the
 			// stream now: a client that attaches late still gets the
@@ -941,9 +954,10 @@ func query[T any](g *Registry, runID string, read func(*liveRun) T) (T, error) {
 // liveRun is one run's state. Every field is owned by loop's goroutine and must
 // only be touched from inside a command.
 type liveRun struct {
-	req   StartRunRequest
-	sim   *sim.Sim
-	clock Clock
+	req     StartRunRequest
+	sim     *sim.Sim
+	clock   Clock
+	metrics *metrics.Recorder
 
 	state      State
 	startedAt  time.Time
@@ -1012,7 +1026,10 @@ func (r *liveRun) advance() {
 	if r.state != StateRunning {
 		return
 	}
-	if err := r.sim.Step(); err != nil {
+	stepStart := time.Now()
+	err := r.sim.Step()
+	r.metrics.ObserveTick(time.Since(stepStart))
+	if err != nil {
 		r.failure = err
 		r.finish()
 		return
@@ -1067,8 +1084,10 @@ func (r *liveRun) publish() {
 		select {
 		case s.ch <- frame:
 			r.snapshotsSent++
+			r.metrics.ObservePublish()
 		default:
 			r.snapshotsDropped++
+			r.metrics.ObserveSnapshotDropped()
 		}
 	}
 }

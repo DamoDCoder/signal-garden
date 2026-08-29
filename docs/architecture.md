@@ -19,7 +19,7 @@ flowchart LR
     end
 
     Replay[Replay and load tools] --> Log
-    Control --> Telemetry[OpenTelemetry]
+    Control --> Telemetry[Prometheus]
     Processor --> Telemetry
     Projection --> Telemetry
 ```
@@ -52,7 +52,12 @@ The event path is in-process by [0004](decisions/0004-event-spine-replaces-kafka
 - Delivery is at-least-once. The processor deduplicates on the idempotency key in [events.md](events.md); nothing depends on exactly-once.
 - The processor is the authority for garden state. Clients render projections and do not calculate authoritative outcomes.
 - Snapshots bound replay cost and hold run metadata; the event log remains the source for replay.
-- Metrics and traces are emitted at service boundaries and correlated with run ID and event ID.
+- Prometheus metrics are emitted at service boundaries: tick duration, gRPC/REST call duration,
+  events processed, snapshots dropped, and projection freshness. Deliberately no `run_id` label —
+  Prometheus label values must stay bounded, and a run ID is not — so metrics are global or labeled
+  only by closed sets (event outcome, gRPC method and code). Per-run drill-down stays on the
+  existing `GetTelemetry` poll. Run/event correlation is OpenTelemetry traces' job, not built yet.
+  See [0016](decisions/0016-prometheus-metrics-carry-no-run-id-label.md).
 
 ## Initial Deployment Shape
 

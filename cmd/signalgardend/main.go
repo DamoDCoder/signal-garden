@@ -33,6 +33,7 @@ import (
 	"github.com/damodbear/signal-garden/internal/engine"
 	"github.com/damodbear/signal-garden/internal/eventlog"
 	gardenv1 "github.com/damodbear/signal-garden/internal/gen/signal/garden/v1"
+	"github.com/damodbear/signal-garden/internal/metrics"
 	"github.com/damodbear/signal-garden/internal/projection"
 	"github.com/damodbear/signal-garden/internal/service"
 )
@@ -64,10 +65,13 @@ func realMain() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	rec := metrics.New()
+
 	runs := engine.NewRegistry(
 		engine.WithTickInterval(tickInterval),
 		engine.WithLogs(engine.DirectoryLogs(dataDir)),
 		engine.WithCorruptPolicy(corrupt),
+		engine.WithMetrics(rec),
 	)
 	defer runs.Close()
 	fmt.Fprintf(os.Stderr, "run history under %s, on corrupt: %s\n", dataDir, corrupt)
@@ -87,7 +91,7 @@ func realMain() error {
 		fmt.Fprintf(os.Stderr, "cross-origin requests allowed from %s\n", corsOrigin)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.ChainUnaryInterceptor(rec.UnaryServerInterceptor()))
 	gardenv1.RegisterGardenServiceServer(grpcServer, service.New(runs))
 
 	// Reflection makes the service explorable with grpcurl during local
@@ -121,7 +125,7 @@ func realMain() error {
 
 	httpServer := &http.Server{
 		Addr:              httpAddr,
-		Handler:           withCORS(routes(gateway, projection.Handler(runs), &ready), corsOrigin),
+		Handler:           withCORS(routes(gateway, projection.Handler(runs), &ready, rec), corsOrigin),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
@@ -192,14 +196,16 @@ func newGateway(ctx context.Context, target string) (http.Handler, error) {
 }
 
 // routes assembles the public HTTP surface: generated REST under /v1, the
-// projection stream, plus the two checks Compose health gating needs.
+// projection stream, the Prometheus scrape target, plus the two checks
+// Compose health gating needs.
 //
 // Liveness answers "is this process running"; readiness answers "can it serve".
 // They differ during startup and shutdown, which is exactly when a health check
 // has to tell them apart.
-func routes(gateway http.Handler, stream http.Handler, ready *atomic.Bool) http.Handler {
+func routes(gateway http.Handler, stream http.Handler, ready *atomic.Bool, rec *metrics.Recorder) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/v1/", gateway)
+	mux.Handle("GET /metrics", rec.Handler())
 
 	// The stream sits under /v1 and is not a generated route, so it needs a
 	// more specific pattern than the gateway's prefix. It wins because

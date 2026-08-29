@@ -58,7 +58,7 @@ Kafka was the original plan and is not the plan now. The log is an in-process li
 - A run survives a simulated power cut at every tick boundary, in all three crash shapes, losing nothing the log acknowledged as durable.
 - Partition keys, snapshot cadence, and run retention are documented.
 
-## M3: Failure And Performance Lab
+## M3: Failure And Performance Lab — _in progress_
 
 **Goal:** make system behavior measurable and tunable.
 
@@ -66,12 +66,24 @@ Kafka was the original plan and is not the plan now. The log is an in-process li
 
 **Feedback demo:** compare worker count and batch size under a controlled event burst.
 
-**Exit criteria:**
+**Done:**
 
-- Throughput, p50/p95/p99 latency, lag, retries, drops, and WebSocket freshness are visible.
+- Throughput, p50/p95/p99 latency, and drops are visible, via Prometheus at `GET /metrics`:
+  `signal_garden_tick_duration_seconds`, `signal_garden_rpc_duration_seconds`,
+  `signal_garden_events_processed_total`, `signal_garden_snapshots_dropped_total`. WebSocket
+  freshness is visible too, via `signal_garden_last_publish_timestamp_seconds`. Deliberately global,
+  not per-run — see [0016](decisions/0016-prometheus-metrics-carry-no-run-id-label.md).
+
+**Exit criteria still open:**
+
+- `lag` and `retries` are not yet visible — `TelemetrySnapshot.pending` is always zero until
+  processing is concurrent enough to lag (the worker-count/batch-size slice below), and there is no
+  retry concept yet (failure injection's job).
 - At least one bottleneck is measured and improved or explicitly documented.
 - Recovery time and failure behavior have repeatable scenarios.
 - A local load test runs without cloud services.
+- OpenTelemetry traces (run/event correlation) and a compact in-app performance view are not built.
+- Worker count and batch size are not yet real controls.
 
 ## M4: Showcase Release
 

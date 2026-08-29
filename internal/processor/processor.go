@@ -10,6 +10,7 @@ import (
 
 	"github.com/damodbear/signal-garden/internal/domain"
 	"github.com/damodbear/signal-garden/internal/event"
+	"github.com/damodbear/signal-garden/internal/metrics"
 )
 
 // Stats counts what the processor did, and is the raw material for the run
@@ -36,14 +37,18 @@ type Processor struct {
 	garden  *domain.Garden
 	applied map[string]struct{}
 	stats   Stats
+	metrics *metrics.Recorder
 }
 
-// New returns a processor that owns the given garden.
-func New(g *domain.Garden) *Processor {
+// New returns a processor that owns the given garden. m may be nil, which
+// records nothing — the caller decides whether this processor's activity
+// counts toward the daemon's Prometheus metrics (see sim.Config.Metrics).
+func New(g *domain.Garden, m *metrics.Recorder) *Processor {
 	return &Processor{
 		garden:  g,
 		applied: make(map[string]struct{}),
 		stats:   Stats{ByType: make(map[string]int)},
+		metrics: m,
 	}
 }
 
@@ -58,12 +63,14 @@ func (p *Processor) Process(e event.Event) Result {
 
 	if err := e.Validate(); err != nil {
 		p.stats.Rejected++
+		p.metrics.ObserveEvent("rejected")
 		return Result{Err: err}
 	}
 
 	key := e.IdempotencyKey()
 	if _, seen := p.applied[key]; seen {
 		p.stats.Duplicates++
+		p.metrics.ObserveEvent("duplicate")
 		return Result{Duplicate: true}
 	}
 	p.applied[key] = struct{}{}
@@ -74,10 +81,13 @@ func (p *Processor) Process(e event.Event) Result {
 	switch outcome {
 	case domain.OutcomeApplied:
 		p.stats.Applied++
+		p.metrics.ObserveEvent("applied")
 	case domain.OutcomeUnknownEntity:
 		p.stats.UnknownEntity++
+		p.metrics.ObserveEvent("unknown_entity")
 	default:
 		p.stats.NoEffect++
+		p.metrics.ObserveEvent("no_effect")
 	}
 	return Result{Outcome: outcome}
 }

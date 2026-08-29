@@ -13,6 +13,7 @@ import (
 	"github.com/damodbear/signal-garden/internal/domain"
 	"github.com/damodbear/signal-garden/internal/event"
 	"github.com/damodbear/signal-garden/internal/eventlog"
+	"github.com/damodbear/signal-garden/internal/metrics"
 	"github.com/damodbear/signal-garden/internal/processor"
 	"github.com/damodbear/signal-garden/internal/producer"
 )
@@ -159,7 +160,7 @@ func Rebuild(l *eventlog.Log) (*domain.Garden, Snapshot, error) {
 	// table. That is sound here because a redelivery is appended next to the
 	// record it repeats, so no duplicate pair straddles a snapshot — and a
 	// snapshot is only ever taken at a tick boundary.
-	proc := processor.New(garden)
+	proc := processor.New(garden, nil) // rebuild is a fold of history, not live activity
 	if err := proc.ProcessBatch(tail); err != nil {
 		return nil, snapshot, fmt.Errorf("fold %d records after the snapshot at %d: %w", len(tail), offset, err)
 	}
@@ -240,7 +241,7 @@ func merge(a, b processor.Stats) processor.Stats {
 // replay to check against. A resumed run is therefore not a chain-comparable
 // continuation of the run it resumes, which is why replay verification uses the
 // log rather than a live run.
-func Resume(runID string, l *eventlog.Log) (*Sim, Snapshot, error) {
+func Resume(runID string, l *eventlog.Log, m *metrics.Recorder) (*Sim, Snapshot, error) {
 	if l == nil {
 		return nil, Snapshot{}, fmt.Errorf("resume run %s: no log", runID)
 	}
@@ -292,11 +293,12 @@ func Resume(runID string, l *eventlog.Log) (*Sim, Snapshot, error) {
 			MaxTicks:       snapshot.MaxTicks,
 			TickInterval:   snapshot.TickInterval,
 			Log:            l,
+			Metrics:        m,
 		},
 		garden:    garden,
 		prod:      prod,
 		log:       l,
-		proc:      processor.New(garden),
+		proc:      processor.New(garden, m),
 		chain:     core.NewChain(),
 		tick:      snapshot.Tick,
 		controls:  snapshot.Controls,
