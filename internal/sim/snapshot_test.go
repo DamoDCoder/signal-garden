@@ -31,6 +31,78 @@ func onDisk(t *testing.T, fs *spinesim.FS, snapshotEvery int64) *Sim {
 	return s
 }
 
+// TestSaveRetriesOnInjectedFailure is the demoable case FailSnapshotEvery
+// exists for: a transient failure that recovers, not a duplicate of the
+// existing "the run terminates on a real disk error" path. See
+// docs/decisions/0018.
+func TestSaveRetriesOnInjectedFailure(t *testing.T) {
+	fs := spinesim.NewFS()
+	s := onDisk(t, fs, 0) // SnapshotEvery=0: this test calls Save directly
+	defer s.Close()
+
+	mustStep(t, s, 3)
+	wantHash := s.Hash()
+
+	s.controls.FailSnapshotEvery = 1 // every invocation's first attempt fails
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save() with an injected failure that should recover: %v", err)
+	}
+	if got := s.SnapshotSaveRetries(); got == 0 {
+		t.Error("SnapshotSaveRetries() = 0, want at least one retry recorded")
+	}
+	if got := s.SnapshotSaveFailures(); got != 0 {
+		t.Errorf("SnapshotSaveFailures() = %d, want 0 — the injected failure always recovers", got)
+	}
+
+	// The injected failure must be invisible to correctness: the garden this
+	// run reaches is exactly what an unaffected run reaches.
+	if got := s.Hash(); got != wantHash {
+		t.Errorf("Hash() after a retried save = %s, want %s (unchanged by the retry)", got, wantHash)
+	}
+}
+
+// TestSaveDoesNotRetryWhenDisabled confirms the default (FailSnapshotEvery=0,
+// the value every existing test already uses) never touches the retry path —
+// this is what keeps every prior test in this package passing unmodified.
+func TestSaveDoesNotRetryWhenDisabled(t *testing.T) {
+	s := onDisk(t, spinesim.NewFS(), 0)
+	defer s.Close()
+
+	mustStep(t, s, 2)
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save(): %v", err)
+	}
+	if got := s.SnapshotSaveRetries(); got != 0 {
+		t.Errorf("SnapshotSaveRetries() = %d, want 0 with FailSnapshotEvery disabled", got)
+	}
+	if got := s.SnapshotSaveFailures(); got != 0 {
+		t.Errorf("SnapshotSaveFailures() = %d, want 0 with FailSnapshotEvery disabled", got)
+	}
+}
+
+// TestSaveRetriesOnCadenceKeepsTheRunGoing exercises the path an injected
+// failure actually goes through in a live run: Step's own SnapshotEvery
+// cadence, not a direct Save call. A recovered retry must not fail Step or
+// the run it belongs to.
+func TestSaveRetriesOnCadenceKeepsTheRunGoing(t *testing.T) {
+	cfg := baseConfig()
+	cfg.SnapshotEvery = 2
+	cfg.Controls.FailSnapshotEvery = 1
+	s := mustNew(t, cfg)
+
+	mustStep(t, s, 6) // three snapshot-cadence saves, each one's first attempt injected-failed
+
+	if got := s.SnapshotSaveRetries(); got == 0 {
+		t.Error("SnapshotSaveRetries() = 0, want retries from the cadence-triggered saves")
+	}
+	if got := s.SnapshotSaveFailures(); got != 0 {
+		t.Errorf("SnapshotSaveFailures() = %d, want 0", got)
+	}
+	if got := s.Tick(); got != 6 {
+		t.Errorf("Tick() = %d, want 6 — a recovered retry must not stall or fail the run", got)
+	}
+}
+
 // The load-bearing property of a snapshot: it is a shortcut past records already
 // folded, never a second source of truth. Rebuilding with one and rebuilding
 // without one have to reach the same garden, or the snapshot is state nobody can

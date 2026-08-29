@@ -41,11 +41,10 @@ enum RunState {
 }
 
 // Controls are the knobs a player turns during a run: how many events each
-// tick produces, the relative mix of event types, and how much of a tick's
-// production the processor drains before the rest waits for a later tick.
-//
-// Retry policy is failure injection's, not this slice's, and still has no
-// field: new controls take new field numbers when they become real.
+// tick produces, the relative mix of event types, how much of a tick's
+// production the processor drains before the rest waits for a later tick,
+// and how often the periodic on-disk snapshot save is made to fail and
+// retry.
 message Controls {
   int32 events_per_tick = 1 [json_name = "events_per_tick"];
   int32 rain_weight = 2 [json_name = "rain_weight"];
@@ -60,6 +59,13 @@ message Controls {
   // always zero because nothing ever falls behind. See docs/decisions/0017.
   int32 worker_count = 5 [json_name = "worker_count"];
   int32 batch_size = 6 [json_name = "batch_size"];
+
+  // fail_snapshot_every makes every Nth invocation of the periodic on-disk
+  // snapshot save fail its first attempt and retry — a transient, recoverable
+  // failure, deterministic like duplicate_every rather than probabilistic.
+  // Zero disables it. This is what makes TelemetrySnapshot.snapshot_save_retries
+  // genuinely nonzero. See docs/decisions/0018.
+  int32 fail_snapshot_every = 7 [json_name = "fail_snapshot_every"];
 }
 
 // Run is the lifecycle view of a simulation.
@@ -186,6 +192,13 @@ message TelemetrySnapshot {
   // position a restart resumes from. It moves at snapshot cadence rather than
   // per tick, so it trails log_offset by design.
   int64 committed_offset = 16 [json_name = "committed_offset", jstype = JS_NUMBER];
+
+  // snapshot_save_retries and snapshot_save_failures count attempts to write
+  // the periodic on-disk snapshot, not the snapshots_sent/dropped WebSocket
+  // frames above — "save" names the on-disk write. A retry recovers; a
+  // failure means every attempt did not. See docs/decisions/0018.
+  int64 snapshot_save_retries = 17 [json_name = "snapshot_save_retries", jstype = JS_NUMBER];
+  int64 snapshot_save_failures = 18 [json_name = "snapshot_save_failures", jstype = JS_NUMBER];
 }
 
 // EventPayload carries typed event data. Amount is the magnitude for rain,

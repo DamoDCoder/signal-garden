@@ -23,15 +23,19 @@ const (
 // WorkerCount and BatchSize cap how many records one tick folds into the
 // garden — worker_count * batch_size — rather than draining everything the
 // tick produced. Zero on either means unbounded, the behavior before this
-// pair existed. Retry policy is still not here: it is failure injection's,
-// not this pair's. See docs/decisions/0017.
+// pair existed. See docs/decisions/0017.
+//
+// FailSnapshotEvery makes every Nth periodic on-disk snapshot save fail its
+// first attempt and retry — deterministic, like DuplicateEvery, not
+// probabilistic. See docs/decisions/0018.
 type Controls struct {
-	EventsPerTick int `json:"events_per_tick"`
-	RainWeight    int `json:"rain_weight"`
-	GrowthWeight  int `json:"growth_weight"`
-	PestWeight    int `json:"pest_weight"`
-	WorkerCount   int `json:"worker_count"`
-	BatchSize     int `json:"batch_size"`
+	EventsPerTick     int `json:"events_per_tick"`
+	RainWeight        int `json:"rain_weight"`
+	GrowthWeight      int `json:"growth_weight"`
+	PestWeight        int `json:"pest_weight"`
+	WorkerCount       int `json:"worker_count"`
+	BatchSize         int `json:"batch_size"`
+	FailSnapshotEvery int `json:"fail_snapshot_every"`
 }
 
 // Capacity returns how many records one tick may fold into the garden.
@@ -79,6 +83,9 @@ func (c Controls) Validate() error {
 	}
 	if c.BatchSize > MaxBatchSize {
 		return fmt.Errorf("%w: batch_size must not exceed %d, got %d", ErrInvalidControls, MaxBatchSize, c.BatchSize)
+	}
+	if c.FailSnapshotEvery < 0 {
+		return fmt.Errorf("%w: fail_snapshot_every must not be negative, got %d", ErrInvalidControls, c.FailSnapshotEvery)
 	}
 	return nil
 }

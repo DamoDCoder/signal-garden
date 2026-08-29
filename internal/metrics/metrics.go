@@ -27,11 +27,13 @@ import (
 type Recorder struct {
 	registry *prometheus.Registry
 
-	tickDuration     prometheus.Histogram
-	rpcDuration      *prometheus.HistogramVec
-	eventsProcessed  *prometheus.CounterVec
-	snapshotsDropped prometheus.Counter
-	lastPublish      prometheus.Gauge
+	tickDuration         prometheus.Histogram
+	rpcDuration          *prometheus.HistogramVec
+	eventsProcessed      *prometheus.CounterVec
+	snapshotsDropped     prometheus.Counter
+	lastPublish          prometheus.Gauge
+	snapshotSaveRetries  prometheus.Counter
+	snapshotSaveFailures prometheus.Counter
 
 	// pendingByRun backs the pending gauge. It is a private map rather than a
 	// run_id-labeled Prometheus vector — a Gauge here would be last-writer-wins
@@ -74,6 +76,14 @@ func New() *Recorder {
 			Name: "signal_garden_last_publish_timestamp_seconds",
 			Help: "Unix time of the last projection frame sent to any subscriber. time() minus this is WebSocket freshness.",
 		}),
+		snapshotSaveRetries: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "signal_garden_snapshot_save_retries_total",
+			Help: "Retry attempts for the periodic on-disk snapshot save, across every run. A retry recovered.",
+		}),
+		snapshotSaveFailures: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "signal_garden_snapshot_save_failures_total",
+			Help: "Times the periodic on-disk snapshot save exhausted its retries and gave up, across every run.",
+		}),
 		pendingByRun: make(map[string]float64),
 	}
 
@@ -88,6 +98,8 @@ func New() *Recorder {
 		r.eventsProcessed,
 		r.snapshotsDropped,
 		r.lastPublish,
+		r.snapshotSaveRetries,
+		r.snapshotSaveFailures,
 		pendingTotal,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
@@ -144,6 +156,25 @@ func (r *Recorder) ObservePending(runID string, n int) {
 	r.pendingMu.Lock()
 	r.pendingByRun[runID] = float64(n)
 	r.pendingMu.Unlock()
+}
+
+// ObserveSnapshotSaveRetry records one retry attempt of the periodic on-disk
+// snapshot save — an attempt beyond the first, whether recovering from an
+// injected failure or a real one.
+func (r *Recorder) ObserveSnapshotSaveRetry() {
+	if r == nil {
+		return
+	}
+	r.snapshotSaveRetries.Inc()
+}
+
+// ObserveSnapshotSaveFailure records the periodic on-disk snapshot save
+// exhausting its retries and giving up.
+func (r *Recorder) ObserveSnapshotSaveFailure() {
+	if r == nil {
+		return
+	}
+	r.snapshotSaveFailures.Inc()
 }
 
 // ForgetRun drops a run's contribution to the pending total. Call it once a

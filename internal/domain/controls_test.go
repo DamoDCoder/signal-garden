@@ -24,6 +24,8 @@ func TestControlsValidate(t *testing.T) {
 		}, false},
 		{"max worker count is valid", func(c *Controls) { c.WorkerCount = MaxWorkerCount }, false},
 		{"max batch size is valid", func(c *Controls) { c.BatchSize = MaxBatchSize }, false},
+		{"zero fail_snapshot_every is valid (disabled)", func(c *Controls) { c.FailSnapshotEvery = 0 }, false},
+		{"positive fail_snapshot_every is valid", func(c *Controls) { c.FailSnapshotEvery = 3 }, false},
 
 		{"zero rate rejected", func(c *Controls) { c.EventsPerTick = 0 }, true},
 		{"negative rate rejected", func(c *Controls) { c.EventsPerTick = -1 }, true},
@@ -38,6 +40,7 @@ func TestControlsValidate(t *testing.T) {
 		{"worker count above max rejected", func(c *Controls) { c.WorkerCount = MaxWorkerCount + 1 }, true},
 		{"negative batch size rejected", func(c *Controls) { c.BatchSize = -1 }, true},
 		{"batch size above max rejected", func(c *Controls) { c.BatchSize = MaxBatchSize + 1 }, true},
+		{"negative fail_snapshot_every rejected", func(c *Controls) { c.FailSnapshotEvery = -1 }, true},
 	}
 
 	for _, tc := range tests {

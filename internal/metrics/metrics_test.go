@@ -46,6 +46,25 @@ func TestObserveSnapshotDropped(t *testing.T) {
 	}
 }
 
+func TestObserveSnapshotSaveRetry(t *testing.T) {
+	r := New()
+	r.ObserveSnapshotSaveRetry()
+	r.ObserveSnapshotSaveRetry()
+
+	if got := testutil.ToFloat64(r.snapshotSaveRetries); got != 2 {
+		t.Errorf("snapshotSaveRetries = %v, want 2", got)
+	}
+}
+
+func TestObserveSnapshotSaveFailure(t *testing.T) {
+	r := New()
+	r.ObserveSnapshotSaveFailure()
+
+	if got := testutil.ToFloat64(r.snapshotSaveFailures); got != 1 {
+		t.Errorf("snapshotSaveFailures = %v, want 1", got)
+	}
+}
+
 func TestObservePending(t *testing.T) {
 	r := New()
 	r.ObservePending("run-a", 7)
@@ -127,6 +146,8 @@ func TestHandlerServesExpositionFormat(t *testing.T) {
 	r.ObserveSnapshotDropped()
 	r.ObservePublish()
 	r.ObservePending("run-a", 3)
+	r.ObserveSnapshotSaveRetry()
+	r.ObserveSnapshotSaveFailure()
 	interceptor := r.UnaryServerInterceptor()
 	handler := func(ctx context.Context, req any) (any, error) { return nil, nil }
 	_, _ = interceptor(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: "/x"}, handler)
@@ -146,6 +167,8 @@ func TestHandlerServesExpositionFormat(t *testing.T) {
 		"signal_garden_snapshots_dropped_total",
 		"signal_garden_last_publish_timestamp_seconds",
 		"signal_garden_pending_events",
+		"signal_garden_snapshot_save_retries_total",
+		"signal_garden_snapshot_save_failures_total",
 	} {
 		if !contains(body, want) {
 			t.Errorf("response missing metric %q", want)
@@ -174,6 +197,8 @@ func TestNilRecorderIsSafe(t *testing.T) {
 	r.ObservePublish()
 	r.ObservePending("run-a", 3)
 	r.ForgetRun("run-a")
+	r.ObserveSnapshotSaveRetry()
+	r.ObserveSnapshotSaveFailure()
 
 	interceptor := r.UnaryServerInterceptor()
 	info := &grpc.UnaryServerInfo{FullMethod: "/x"}

@@ -117,6 +117,16 @@ type Sim struct {
 	// state is the run's lifecycle, owned by the engine and recorded here so
 	// snapshots carry it. A Sim never acts on it.
 	state string
+
+	// saveInvocations counts every call to Save, which FailSnapshotEvery
+	// counts against — not the number of ticks, since Save is also called
+	// outside the tick cadence (start, pause, finish). snapshotSaveRetries
+	// and snapshotSaveFailures are Save's own outcome counters. None of the
+	// three persist across a restart: this is observability for a demo
+	// control, not run state. See docs/decisions/0018.
+	saveInvocations      int64
+	snapshotSaveRetries  int64
+	snapshotSaveFailures int64
 }
 
 // New creates a simulation positioned at tick zero.
@@ -342,6 +352,16 @@ func (s *Sim) Folded() int64 {
 // a wrong offset on the wire is worse than no offset. The two agree: Save is
 // the only thing that commits, and New seeds this from the log it was handed.
 func (s *Sim) Committed() int64 { return s.committed }
+
+// SnapshotSaveRetries counts every retry attempt Save has made — attempts
+// beyond the first, whether recovering from an injected failure or a real one.
+func (s *Sim) SnapshotSaveRetries() int64 { return s.snapshotSaveRetries }
+
+// SnapshotSaveFailures counts every time Save exhausted its attempts and gave
+// up. Zero under normal FailSnapshotEvery use, since the injected failure only
+// ever occupies the first attempt — nonzero here means a real write failed
+// repeatedly.
+func (s *Sim) SnapshotSaveFailures() int64 { return s.snapshotSaveFailures }
 
 // Since returns the records from an offset up to the tail, without moving the
 // projection's cursor. It is what a client that fell behind is missing.

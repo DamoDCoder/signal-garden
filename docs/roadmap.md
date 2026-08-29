@@ -4,9 +4,9 @@ Each milestone must end with something runnable, measurable, or reviewable. The 
 
 ## Status
 
-`main` at `v0.11.0`. M0–M2 done. M3 in progress, three slices landed as separate commits, not yet
+`main` at `v0.12.0`. M0–M2 done. M3 in progress, four slices landed as separate commits, not yet
 tagged — the convention on this branch is one tag per completed milestone, not one per slice, so
-the next tag is `v0.12.0`+ once M3's exit criteria are met, not before.
+the next tag is `v0.13.0`+ once M3's exit criteria are met, not before.
 
 | Milestone | State |
 | --- | --- |
@@ -25,8 +25,13 @@ the next tag is `v0.12.0`+ once M3's exit criteria are met, not before.
       is CPU-bound enough to parallelize. [0017](decisions/0017-worker-count-and-batch-size-are-a-capacity-model-not-goroutines.md)
 - [x] **Load generator** — `task load` (`cmd/signalgarden -load`) drives a running daemon over its
       real gRPC API with a controlled burst and reports what it observed. Daemon-repo only.
-- [ ] **Failure injection** — no retry concept exists yet; `duplicate_every` is the only
-      failure-injection-shaped control so far. Not started.
+- [x] **Failure injection** — `Controls.fail_snapshot_every`: every Nth periodic on-disk snapshot
+      save fails its first attempt and retries. Targets the snapshot save deliberately, not event
+      processing — every event outcome (rejected, unknown_entity, no_effect) is permanent given the
+      garden's state, so there's nothing transient there to retry; disk I/O is the only real,
+      transient, failable operation in the live path, and the snapshot is the lower-stakes of the
+      two writes (the other being the durability-critical log append M2 depends on).
+      [0018](decisions/0018-failure-injection-targets-the-snapshot-save-not-event-processing.md)
 - [ ] **OpenTelemetry traces** — run/event correlation, explicitly deferred out of the metrics
       slice (0016). Not started.
 - [ ] **Compact in-app performance view** — client-repo, not started.
@@ -35,8 +40,10 @@ the next tag is `v0.12.0`+ once M3's exit criteria are met, not before.
       worker/batch slice landed.
 - [ ] **At least one bottleneck measured and improved or explicitly documented** (exit criterion) —
       `task load` can now produce the measurement; nothing has been written up from one yet.
-- [ ] **Recovery time and failure behavior have repeatable scenarios** (exit criterion) — depends on
-      failure injection existing first.
+- [ ] **Recovery time and failure behavior have repeatable scenarios** (exit criterion) — partially
+      addressed: M2's crash matrix (`internal/sim/crash_test.go`) already gives repeatable
+      unrecoverable-failure scenarios, and `fail_snapshot_every` now gives a repeatable recoverable
+      one. Recovery *time* specifically is not measured anywhere yet.
 
 ## M0: Contract Spike
 

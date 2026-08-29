@@ -265,6 +265,12 @@ type TelemetrySnapshot struct {
 	// restart would redeliver.
 	LogOffset       int64 `json:"log_offset"`
 	CommittedOffset int64 `json:"committed_offset"`
+
+	// SnapshotSaveRetries and SnapshotSaveFailures count attempts to write the
+	// periodic on-disk snapshot — distinct from SnapshotsSent/SnapshotsDropped
+	// above, which are WebSocket frames. See docs/decisions/0018.
+	SnapshotSaveRetries  int64 `json:"snapshot_save_retries"`
+	SnapshotSaveFailures int64 `json:"snapshot_save_failures"`
 }
 
 // RunSummary is the scorecard a finished run leaves behind.
@@ -1159,21 +1165,23 @@ func (r *liveRun) snapshot() GardenSnapshot {
 
 func (r *liveRun) telemetry() TelemetrySnapshot {
 	return TelemetrySnapshot{
-		RunID:            r.req.RunID,
-		State:            r.state,
-		Tick:             r.sim.Tick(),
-		Revision:         r.sim.Revision(),
-		TickInterval:     r.req.TickInterval,
-		Published:        r.sim.Published(),
-		Processor:        r.sim.ProcessorStats(),
-		Pending:          r.sim.Pending(),
-		Subscribers:      len(r.subs),
-		SnapshotsSent:    r.snapshotsSent,
-		SnapshotsDropped: r.snapshotsDropped,
-		Uptime:           r.updatedAt.Sub(r.startedAt),
-		ObservedAt:       r.clock.Now(),
-		LogOffset:        r.sim.Offset(),
-		CommittedOffset:  r.sim.Committed(),
+		RunID:                r.req.RunID,
+		State:                r.state,
+		Tick:                 r.sim.Tick(),
+		Revision:             r.sim.Revision(),
+		TickInterval:         r.req.TickInterval,
+		Published:            r.sim.Published(),
+		Processor:            r.sim.ProcessorStats(),
+		Pending:              r.sim.Pending(),
+		Subscribers:          len(r.subs),
+		SnapshotsSent:        r.snapshotsSent,
+		SnapshotsDropped:     r.snapshotsDropped,
+		Uptime:               r.updatedAt.Sub(r.startedAt),
+		ObservedAt:           r.clock.Now(),
+		LogOffset:            r.sim.Offset(),
+		CommittedOffset:      r.sim.Committed(),
+		SnapshotSaveRetries:  r.sim.SnapshotSaveRetries(),
+		SnapshotSaveFailures: r.sim.SnapshotSaveFailures(),
 	}
 }
 

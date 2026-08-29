@@ -27,23 +27,25 @@ func ControlsFrom(c *gardenv1.Controls) domain.Controls {
 		return domain.Controls{}
 	}
 	return domain.Controls{
-		EventsPerTick: int(c.GetEventsPerTick()),
-		RainWeight:    int(c.GetRainWeight()),
-		GrowthWeight:  int(c.GetGrowthWeight()),
-		PestWeight:    int(c.GetPestWeight()),
-		WorkerCount:   int(c.GetWorkerCount()),
-		BatchSize:     int(c.GetBatchSize()),
+		EventsPerTick:     int(c.GetEventsPerTick()),
+		RainWeight:        int(c.GetRainWeight()),
+		GrowthWeight:      int(c.GetGrowthWeight()),
+		PestWeight:        int(c.GetPestWeight()),
+		WorkerCount:       int(c.GetWorkerCount()),
+		BatchSize:         int(c.GetBatchSize()),
+		FailSnapshotEvery: int(c.GetFailSnapshotEvery()),
 	}
 }
 
 func Controls(c domain.Controls) *gardenv1.Controls {
 	return &gardenv1.Controls{
-		EventsPerTick: int32(c.EventsPerTick),
-		RainWeight:    int32(c.RainWeight),
-		GrowthWeight:  int32(c.GrowthWeight),
-		PestWeight:    int32(c.PestWeight),
-		WorkerCount:   int32(c.WorkerCount),
-		BatchSize:     int32(c.BatchSize),
+		EventsPerTick:     int32(c.EventsPerTick),
+		RainWeight:        int32(c.RainWeight),
+		GrowthWeight:      int32(c.GrowthWeight),
+		PestWeight:        int32(c.PestWeight),
+		WorkerCount:       int32(c.WorkerCount),
+		BatchSize:         int32(c.BatchSize),
+		FailSnapshotEvery: int32(c.FailSnapshotEvery),
 	}
 }
 
@@ -114,22 +116,24 @@ func Snapshot(s engine.GardenSnapshot) *gardenv1.GardenSnapshot {
 
 func Telemetry(t engine.TelemetrySnapshot) *gardenv1.TelemetrySnapshot {
 	return &gardenv1.TelemetrySnapshot{
-		RunId:            t.RunID,
-		State:            State(t.State),
-		Tick:             t.Tick,
-		Revision:         int32(t.Revision),
-		TickInterval:     durationpb.New(t.TickInterval),
-		Published:        int64(t.Published),
-		Processor:        processorStats(t.Processor),
-		Pending:          int64(t.Pending),
-		Subscribers:      int32(t.Subscribers),
-		SnapshotsSent:    t.SnapshotsSent,
-		SnapshotsDropped: t.SnapshotsDropped,
-		Uptime:           durationpb.New(t.Uptime),
-		ObservedAt:       timestampOf(t.ObservedAt),
-		SchemaVersion:    event.SchemaVersion,
-		LogOffset:        t.LogOffset,
-		CommittedOffset:  t.CommittedOffset,
+		RunId:                t.RunID,
+		State:                State(t.State),
+		Tick:                 t.Tick,
+		Revision:             int32(t.Revision),
+		TickInterval:         durationpb.New(t.TickInterval),
+		Published:            int64(t.Published),
+		Processor:            processorStats(t.Processor),
+		Pending:              int64(t.Pending),
+		Subscribers:          int32(t.Subscribers),
+		SnapshotsSent:        t.SnapshotsSent,
+		SnapshotsDropped:     t.SnapshotsDropped,
+		Uptime:               durationpb.New(t.Uptime),
+		ObservedAt:           timestampOf(t.ObservedAt),
+		SchemaVersion:        event.SchemaVersion,
+		LogOffset:            t.LogOffset,
+		CommittedOffset:      t.CommittedOffset,
+		SnapshotSaveRetries:  t.SnapshotSaveRetries,
+		SnapshotSaveFailures: t.SnapshotSaveFailures,
 	}
 }
 

@@ -8,6 +8,29 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 Nothing yet.
 
+## [0.12.0] — 2026-08-29
+
+Failure injection: a transient snapshot-save failure that retries and recovers.
+
+### Added
+
+- **`Controls.fail_snapshot_every`** — every Nth invocation of the periodic on-disk snapshot save
+  (`Sim.Save`) fails its first attempt with a synthetic error, then retries for real. Zero disables
+  it. Deliberately targets the snapshot save, not event processing: every event outcome (rejected,
+  unknown_entity, no_effect) is permanent given the garden's current state, so there is nothing
+  transient to retry there — disk I/O is the only real, transient, failable operation in the live
+  path, and the snapshot is the lower-stakes of the two writes. The retry loop
+  (`maxSnapshotSaveAttempts = 3`) also covers a genuinely real `Log.Save` error the same way.
+  See [0018](docs/decisions/0018-failure-injection-targets-the-snapshot-save-not-event-processing.md).
+- **`TelemetrySnapshot.snapshot_save_retries` / `snapshot_save_failures`** and
+  **`signal_garden_snapshot_save_retries_total` / `signal_garden_snapshot_save_failures_total`**
+  (Prometheus, global, no `run_id`) — closes the `retries` item M3's exit criteria named. Under
+  normal use `snapshot_save_failures` stays zero: the injected failure only ever occupies the first
+  attempt, so the demoable story is a transient failure that recovers.
+
+The counters live only on the in-memory `Sim`, not in the snapshot's own schema — this is an
+observability control for a demo, not run state a restart needs to reproduce.
+
 ## [0.11.0] — 2026-08-29
 
 `task load`: a controlled event burst against a real running daemon.

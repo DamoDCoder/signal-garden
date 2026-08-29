@@ -96,23 +96,55 @@ func (s *Sim) SnapshotState() Snapshot {
 	}
 }
 
+// maxSnapshotSaveAttempts bounds Save's retry loop. It covers a real,
+// transient Log.Save error as well as FailSnapshotEvery's injected one —
+// three attempts is enough to recover from a momentary failure without
+// turning a stuck disk into an infinite loop.
+const maxSnapshotSaveAttempts = 3
+
 // Save writes a snapshot and commits the projections group to the same offset.
 //
 // This is the first thing in the system that commits, and it is why nothing
 // committed before it: a commit promises the records below it never need
 // delivering again, which is only true once the state built from them is on
 // disk.
+//
+// FailSnapshotEvery makes every Nth invocation fail its first attempt with a
+// synthetic error before retrying for real — a controllable, deterministic,
+// always-recoverable failure, which is what makes snapshot_save_retries a
+// genuinely demoable metric rather than a fabricated one. A real Log.Save
+// error is retried the same way. See docs/decisions/0018.
 func (s *Sim) Save() error {
 	state, err := json.Marshal(s.SnapshotState())
 	if err != nil {
 		return fmt.Errorf("encode snapshot for run %s: %w", s.cfg.RunID, err)
 	}
-	at := s.log.Read()
-	if err := s.log.Save(state); err != nil {
-		return fmt.Errorf("save run %s at tick %d: %w", s.cfg.RunID, s.tick, err)
+
+	s.saveInvocations++
+	injectFailure := s.controls.FailSnapshotEvery > 0 && s.saveInvocations%int64(s.controls.FailSnapshotEvery) == 0
+
+	var lastErr error
+	for attempt := 1; attempt <= maxSnapshotSaveAttempts; attempt++ {
+		if attempt > 1 {
+			s.snapshotSaveRetries++
+			s.cfg.Metrics.ObserveSnapshotSaveRetry()
+		}
+		if injectFailure && attempt == 1 {
+			lastErr = fmt.Errorf("save run %s at tick %d: injected failure (fail_snapshot_every=%d)",
+				s.cfg.RunID, s.tick, s.controls.FailSnapshotEvery)
+			continue
+		}
+		at := s.log.Read()
+		if err := s.log.Save(state); err != nil {
+			lastErr = fmt.Errorf("save run %s at tick %d: %w", s.cfg.RunID, s.tick, err)
+			continue
+		}
+		s.committed = at
+		return nil
 	}
-	s.committed = at
-	return nil
+	s.snapshotSaveFailures++
+	s.cfg.Metrics.ObserveSnapshotSaveFailure()
+	return lastErr
 }
 
 // Rebuild reconstructs a run's projection from its log: the newest snapshot,

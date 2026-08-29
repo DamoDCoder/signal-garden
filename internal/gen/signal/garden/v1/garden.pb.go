@@ -154,11 +154,10 @@ func (FrameType) EnumDescriptor() ([]byte, []int) {
 }
 
 // Controls are the knobs a player turns during a run: how many events each
-// tick produces, the relative mix of event types, and how much of a tick's
-// production the processor drains before the rest waits for a later tick.
-//
-// Retry policy is failure injection's, not this slice's, and still has no
-// field: new controls take new field numbers when they become real.
+// tick produces, the relative mix of event types, how much of a tick's
+// production the processor drains before the rest waits for a later tick,
+// and how often the periodic on-disk snapshot save is made to fail and
+// retry.
 type Controls struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	EventsPerTick int32                  `protobuf:"varint,1,opt,name=events_per_tick,proto3" json:"events_per_tick,omitempty"`
@@ -171,10 +170,16 @@ type Controls struct {
 	// pair existed. A capacity below the production rate is what makes
 	// TelemetrySnapshot.pending genuinely nonzero, rather than a value that is
 	// always zero because nothing ever falls behind. See docs/decisions/0017.
-	WorkerCount   int32 `protobuf:"varint,5,opt,name=worker_count,proto3" json:"worker_count,omitempty"`
-	BatchSize     int32 `protobuf:"varint,6,opt,name=batch_size,proto3" json:"batch_size,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	WorkerCount int32 `protobuf:"varint,5,opt,name=worker_count,proto3" json:"worker_count,omitempty"`
+	BatchSize   int32 `protobuf:"varint,6,opt,name=batch_size,proto3" json:"batch_size,omitempty"`
+	// fail_snapshot_every makes every Nth invocation of the periodic on-disk
+	// snapshot save fail its first attempt and retry — a transient, recoverable
+	// failure, deterministic like duplicate_every rather than probabilistic.
+	// Zero disables it. This is what makes TelemetrySnapshot.snapshot_save_retries
+	// genuinely nonzero. See docs/decisions/0018.
+	FailSnapshotEvery int32 `protobuf:"varint,7,opt,name=fail_snapshot_every,proto3" json:"fail_snapshot_every,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *Controls) Reset() {
@@ -245,6 +250,13 @@ func (x *Controls) GetWorkerCount() int32 {
 func (x *Controls) GetBatchSize() int32 {
 	if x != nil {
 		return x.BatchSize
+	}
+	return 0
+}
+
+func (x *Controls) GetFailSnapshotEvery() int32 {
+	if x != nil {
+		return x.FailSnapshotEvery
 	}
 	return 0
 }
@@ -825,8 +837,14 @@ type TelemetrySnapshot struct {
 	// position a restart resumes from. It moves at snapshot cadence rather than
 	// per tick, so it trails log_offset by design.
 	CommittedOffset int64 `protobuf:"varint,16,opt,name=committed_offset,proto3" json:"committed_offset,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// snapshot_save_retries and snapshot_save_failures count attempts to write
+	// the periodic on-disk snapshot, not the snapshots_sent/dropped WebSocket
+	// frames above — "save" names the on-disk write. A retry recovers; a
+	// failure means every attempt did not. See docs/decisions/0018.
+	SnapshotSaveRetries  int64 `protobuf:"varint,17,opt,name=snapshot_save_retries,proto3" json:"snapshot_save_retries,omitempty"`
+	SnapshotSaveFailures int64 `protobuf:"varint,18,opt,name=snapshot_save_failures,proto3" json:"snapshot_save_failures,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *TelemetrySnapshot) Reset() {
@@ -967,6 +985,20 @@ func (x *TelemetrySnapshot) GetLogOffset() int64 {
 func (x *TelemetrySnapshot) GetCommittedOffset() int64 {
 	if x != nil {
 		return x.CommittedOffset
+	}
+	return 0
+}
+
+func (x *TelemetrySnapshot) GetSnapshotSaveRetries() int64 {
+	if x != nil {
+		return x.SnapshotSaveRetries
+	}
+	return 0
+}
+
+func (x *TelemetrySnapshot) GetSnapshotSaveFailures() int64 {
+	if x != nil {
+		return x.SnapshotSaveFailures
 	}
 	return 0
 }
@@ -1897,7 +1929,7 @@ var File_signal_garden_v1_garden_proto protoreflect.FileDescriptor
 
 const file_signal_garden_v1_garden_proto_rawDesc = "" +
 	"\n" +
-	"\x1dsignal/garden/v1/garden.proto\x12\x10signal.garden.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe2\x01\n" +
+	"\x1dsignal/garden/v1/garden.proto\x12\x10signal.garden.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x94\x02\n" +
 	"\bControls\x12(\n" +
 	"\x0fevents_per_tick\x18\x01 \x01(\x05R\x0fevents_per_tick\x12 \n" +
 	"\vrain_weight\x18\x02 \x01(\x05R\vrain_weight\x12$\n" +
@@ -1906,7 +1938,8 @@ const file_signal_garden_v1_garden_proto_rawDesc = "" +
 	"\fworker_count\x18\x05 \x01(\x05R\fworker_count\x12\x1e\n" +
 	"\n" +
 	"batch_size\x18\x06 \x01(\x05R\n" +
-	"batch_size\"\xe6\x04\n" +
+	"batch_size\x120\n" +
+	"\x13fail_snapshot_every\x18\a \x01(\x05R\x13fail_snapshot_every\"\xe6\x04\n" +
 	"\x03Run\x12\x16\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x06run_id\x12\x16\n" +
 	"\x04seed\x18\x02 \x01(\x03B\x020\x01R\x04seed\x12\x1c\n" +
@@ -1965,7 +1998,7 @@ const file_signal_garden_v1_garden_proto_rawDesc = "" +
 	"\aby_type\x18\a \x03(\v2,.signal.garden.v1.ProcessorStats.ByTypeEntryR\aby_type\x1a9\n" +
 	"\vByTypeEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\xbf\x05\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\xb5\x06\n" +
 	"\x11TelemetrySnapshot\x12\x16\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x06run_id\x120\n" +
 	"\x05state\x18\x02 \x01(\x0e2\x1a.signal.garden.v1.RunStateR\x05state\x12\x16\n" +
@@ -1985,7 +2018,9 @@ const file_signal_garden_v1_garden_proto_rawDesc = "" +
 	"\n" +
 	"log_offset\x18\x0f \x01(\x03B\x020\x02R\n" +
 	"log_offset\x12.\n" +
-	"\x10committed_offset\x18\x10 \x01(\x03B\x020\x02R\x10committed_offset\"B\n" +
+	"\x10committed_offset\x18\x10 \x01(\x03B\x020\x02R\x10committed_offset\x128\n" +
+	"\x15snapshot_save_retries\x18\x11 \x01(\x03B\x020\x02R\x15snapshot_save_retries\x12:\n" +
+	"\x16snapshot_save_failures\x18\x12 \x01(\x03B\x020\x02R\x16snapshot_save_failures\"B\n" +
 	"\fEventPayload\x12\x16\n" +
 	"\x06amount\x18\x01 \x01(\x05R\x06amount\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\x05R\brevision\"\xe1\x02\n" +
