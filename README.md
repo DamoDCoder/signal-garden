@@ -6,7 +6,7 @@ Signal Garden is a local-first real-time event-processing laboratory disguised a
 
 ## Status
 
-**v0.8.1 — M0 and M2 complete; M1's browser half lives elsewhere.** One Go process, an append-only event log, deterministic simulation, a live run engine behind a CLI projection, a gRPC service with a generated REST gateway, and a WebSocket projection stream a client can resume from a log offset. Run history is durable and replayable, and a run outlives the process that was serving it.
+**v0.8.1 — M0, M1, and M2 complete.** One Go process, an append-only event log, deterministic simulation, a live run engine behind a CLI projection, a gRPC service with a generated REST gateway, and a WebSocket projection stream a client can resume from a log offset. Run history is durable and replayable, and a run outlives the process that was serving it.
 
 This repository owns the contract and serves it. The React client and the Compose stack are in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden), which pins a tag here rather than tracking `main` — see [0011](docs/decisions/0011-the-ui-is-a-separate-repository.md) and [docs/roadmap.md](docs/roadmap.md).
 
@@ -115,21 +115,19 @@ Replay reaches the same snapshot hash the live run ended on, in a different proc
 
 `main` at `v0.8.1`, pushed to [DamoDCoder/signal-garden](https://github.com/DamoDCoder/signal-garden). Everything passes under `task check`.
 
-Nothing here blocks the client. M2's exit criteria are met, M1's server half is done, and the contract is generated, versioned, and checked against the generator that consumes it. The next work in *this* repository is M3.
+Nothing here blocks the client. M1 and M2's exit criteria are both met, and the contract is generated, versioned, and checked against the generator that consumes it. The next work in *this* repository is M3.
 
-**M2's exit criteria are met.** Duplicate delivery ✓, reconnect catch-up ✓, replay determinism on a chain ✓, crash survival ✓, keys and retention documented ✓. The projection stream that catch-up needed was M1's last outstanding transport, so M1 is down to the React surface and Compose, both in the client repository.
+**M2's exit criteria are met.** Duplicate delivery ✓, reconnect catch-up ✓, replay determinism on a chain ✓, crash survival ✓, keys and retention documented ✓.
 
 **Runs survive a restart.** Kill the daemon mid-run and start it again: it finds the runs it was serving, rebuilds each one from its log, and carries on producing where it stopped. A run interrupted at tick 26 comes back at tick 26 and reaches the garden a run that never stopped would have reached. Finished runs stay finished; paused runs come back paused. See [0013](docs/decisions/0013-derive-each-tick-s-randomness.md) for the producer half and [0014](docs/decisions/0014-a-restarted-daemon-resumes-its-runs.md) for the rest.
 
-### 1. M1's unfinished half
-
-React control surface and Docker Compose, both in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden). This repository owns the contract and stays runnable with `task serve` alone; the compose file describing both halves lives with the client, because the dependency runs that way round. See [0011](docs/decisions/0011-the-ui-is-a-separate-repository.md).
+**M1 is done.** The React control surface and Docker Compose, both in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden), start a run, take control changes, pause, and finish it from the browser, and `docker compose up` starts the local stack clean. This repository owns the contract and stays runnable with `task serve` alone; the compose file describing both halves lives with the client, because the dependency runs that way round. See [0011](docs/decisions/0011-the-ui-is-a-separate-repository.md).
 
 That client generates TypeScript with `protoc-gen-es`, straight from the `.proto` — it is the only option that covers both transports, since an OpenAPI spec describes the REST routes and cannot see `ProjectionFrame`. [docs/contracts.md](docs/contracts.md) has the invocation, and [0012](docs/decisions/0012-declare-the-js-type-of-every-64-bit-field.md) records what it does with `jstype`: `run.seed` is a `string`, and every 64-bit quantity is a `bigint`.
 
 Pin a tag rather than tracking `main`. `v0.7.0` is the first with `Run.resumed` on it.
 
-### 2. M3, the failure and performance lab
+### 1. M3, the failure and performance lab
 
 Load generator, failure injection, OpenTelemetry, Prometheus metrics, latency histograms. It is also where two deferrals finally get numbers instead of guesses:
 
