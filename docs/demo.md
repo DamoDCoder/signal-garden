@@ -18,6 +18,28 @@ Open `http://localhost:5173`. `task up` checks the daemon image it just built ma
 pinned contract before starting anything — if that warns, `git -C signal-garden tag` and
 `cat app.signal-garden/CONTRACT` should read the same version.
 
+## The Game
+
+Three event types, three rules, one real tension — not three independent sliders
+(`internal/domain/rules.go`):
+
+- **Rain** adds moisture, capped at 100. Does nothing to a dead organism or one already at the cap.
+- **Growth** spends 20 moisture and needs health ≥ 30 to advance one stage (of 5). No moisture, no
+  health, or already at max stage: nothing happens.
+- **Pest** removes health, floored at 0. An organism at 0 health is dead — permanently: a dead
+  organism absorbs rain and pest alike without effect, which is also why the determinism story uses
+  a *chain* digest rather than a terminal hash (`docs/decisions/0008-assert-determinism-on-a-chain-not-a-terminal-hash.md`)
+  — two gardens that died differently can still land on the same final state.
+
+The tension: rain and growth compete for the same moisture, so raining without ever growing just
+caps out at 100 and wastes production, and growing without raining stalls the instant the bank
+empties. Pest pressure sets the clock — it's the only thing that can end an organism's story, and
+low health blocks growth even before it does. The four `Controls` weights
+(`events_per_tick`/`rain_weight`/`growth_weight`/`pest_weight`) are how a player leans into or away
+from that clock. On screen: size is stage, colour is health (green through red), the ring is
+moisture — a glance separates a thirsty garden from a dying one instead of averaging them into one
+number (`app.signal-garden/docs/ui.md`).
+
 ## The Walkthrough
 
 **Start a run.** Seed `42`, defaults otherwise, "Start run." The garden appears as a grid of glyphs

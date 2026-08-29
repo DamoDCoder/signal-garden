@@ -7,9 +7,11 @@ Each milestone must end with something runnable, measurable, or reviewable. The 
 `main` at `v0.13.0`, tagged — every M3 *build* item has shipped across both repos (client at
 `v0.4.0`). One M3 exit criterion remains open (recovery time specifically) — see below — so the
 milestone itself isn't tagged done yet; `v0.13.0`/`v0.4.0` mark "all the M3 slices landed," not "M3
-is closed." M4 is now underway too, in parallel: its demo script and performance report are done.
-The next tag is `v0.14.0`+ once M3's last criterion is addressed, or `v1.0.0`+ if the rest of M4
-lands first and folds it in.
+is closed." M4 is underway too, in parallel: this repository's own four exit criteria are all met;
+what's left is client-repo (garden interactions, a one-click demo seed, a production Compose build,
+dashboards) plus a genuinely clean-machine setup test, which stays open in both repos. The next tag
+is `v0.14.0`+ once M3's last criterion is addressed, or `v1.0.0`+ if the rest of M4 lands first and
+folds it in.
 
 | Milestone | State |
 | --- | --- |
@@ -17,7 +19,7 @@ lands first and folds it in.
 | M1: Local Vertical Slice | ✅ Done (client repo carries the browser half) |
 | M2: Event Backbone And Replay | ✅ Done |
 | M3: Failure And Performance Lab | 🚧 Build done, 1 exit criterion open |
-| M4: Showcase Release | 🚧 In progress |
+| M4: Showcase Release | 🚧 This repo's exit criteria met; client-repo items remain |
 
 ### M3 deliverables
 
@@ -214,10 +216,15 @@ Kafka was the original plan and is not the plan now. The log is an in-process li
   seven limits, each pointing at the decision record behind it rather than repeating the reasoning,
   plus a Next Experiments section (catch-up cost measurement, recovery-time measurement, chain
   digest sampling, per-event trace detail — each already scoped in the decision that deferred it).
+- **The demo explains both the game loop and the event-processing system.** `docs/demo.md` gained a
+  "The Game" section — rain and growth compete for the same moisture, pest sets the clock, the four
+  `Controls` weights are how a player leans into or away from that — ahead of the walkthrough, which
+  was event-processing-framed only (determinism, capacity, failure/retry, reconnect, observability).
 
-**Exit criteria still open:**
-
-- The demo explains both the game loop and the event-processing system.
+All four of this repository's own M4 exit criteria are met. What's left in M4 — garden interactions,
+a one-click demo seed, a production Compose build, pre-configured dashboards, a genuinely clean
+*machine* — is client-repo, or (the clean machine) a gap neither repo's checked list can close from
+inside this environment.
 
 ## Later Extensions
 
