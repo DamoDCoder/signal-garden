@@ -5,18 +5,19 @@ Each milestone must end with something runnable, measurable, or reviewable. The 
 ## Status
 
 `main` at `v0.13.0`, tagged — every M3 *build* item has shipped across both repos (client at
-`v0.4.0`). Two M3 *exit criteria* remain open (a documented bottleneck, recovery time specifically)
-— see below — so the milestone itself isn't tagged done yet; `v0.13.0`/`v0.4.0` mark "all the M3
-slices landed," not "M3 is closed." The next tag is `v0.14.0`+ once those two are addressed, or
-`v1.0.0`+ if M4 lands first and folds them in.
+`v0.4.0`). One M3 exit criterion remains open (recovery time specifically) — see below — so the
+milestone itself isn't tagged done yet; `v0.13.0`/`v0.4.0` mark "all the M3 slices landed," not "M3
+is closed." M4 is now underway too, in parallel: its demo script and performance report are done.
+The next tag is `v0.14.0`+ once M3's last criterion is addressed, or `v1.0.0`+ if the rest of M4
+lands first and folds it in.
 
 | Milestone | State |
 | --- | --- |
 | M0: Contract Spike | ✅ Done |
 | M1: Local Vertical Slice | ✅ Done (client repo carries the browser half) |
 | M2: Event Backbone And Replay | ✅ Done |
-| M3: Failure And Performance Lab | 🚧 Build done, 2 exit criteria open |
-| M4: Showcase Release | ⬜ Not started |
+| M3: Failure And Performance Lab | 🚧 Build done, 1 exit criterion open |
+| M4: Showcase Release | 🚧 In progress |
 
 ### M3 deliverables
 
@@ -45,9 +46,14 @@ slices landed," not "M3 is closed." The next tag is `v0.14.0`+ once those two ar
 - [x] **Client sliders for `worker_count`/`batch_size`/`fail_snapshot_every`** — the client's
       `CONTRACT` bumped to this repo's `v0.13.0`; all three are live-tunable sliders in the Controls
       panel. Client `v0.4.0`.
-- [ ] **At least one bottleneck measured and improved or explicitly documented** (exit criterion) —
-      `task load` and the client's sliders can now produce the measurement; nothing has been written
-      up from one yet.
+- [x] **At least one bottleneck measured and improved or explicitly documented** (exit criterion) —
+      chain-digest cost (`Garden.Digest()`, once per event in `fold()`), measured with `task load`
+      across a 7-scenario matrix up to 2000 organisms × 200 events/tick. Not a bottleneck at demo
+      scale (single-digit ms, under 4% of tick budget); real but fixed-overhead-masked below a few
+      hundred organisms; only the most extreme scenario spends a majority of its tick budget on it.
+      Explicitly documented rather than fixed — sampling stays unwritten. See
+      [0008](decisions/0008-assert-determinism-on-a-chain-not-a-terminal-hash.md#measured-at-m3) and
+      [performance-report.md](performance-report.md).
 - [ ] **Recovery time and failure behavior have repeatable scenarios** (exit criterion) — partially
       addressed: M2's crash matrix (`internal/sim/crash_test.go`) already gives repeatable
       unrecoverable-failure scenarios, and `fail_snapshot_every` now gives a repeatable recoverable
@@ -156,11 +162,18 @@ Kafka was the original plan and is not the plan now. The log is an in-process li
   app.signal-garden `v0.4.0`. A compact in-app performance view exists too: the client's Pressure
   panel already had a rolling pressure history from M1 and now also shows the two new snapshot-save
   counters.
+- **At least one bottleneck is measured and explicitly documented.** Chain-digest cost
+  (`Garden.Digest()`, once per event in `fold()`) — a 7-scenario `task load` matrix up to 2000
+  organisms × 200 events/tick found it real, growing the way `organisms * events_per_tick` predicts,
+  and not a bottleneck at demo scale: single-digit milliseconds, under 4% of the 200ms tick budget.
+  A fixed per-tick floor (most likely `Log.Append`'s one fsync a tick) dominates below a few hundred
+  organisms; only the most extreme scenario tested spent a majority of its tick budget here.
+  Documented rather than fixed — sampling, 0008's own proposed fix, stays unwritten. See
+  [0008](decisions/0008-assert-determinism-on-a-chain-not-a-terminal-hash.md#measured-at-m3) and
+  [performance-report.md](performance-report.md).
 
 **Exit criteria still open:**
 
-- At least one bottleneck is measured and improved or explicitly documented. `task load` and the
-  client's sliders can now produce the measurement; nothing has been written up from one yet.
 - Recovery time and failure behavior have repeatable scenarios — partially: M2's crash matrix
   (`internal/sim/crash_test.go`) gives repeatable unrecoverable-failure scenarios, and
   `fail_snapshot_every` gives a repeatable recoverable one. Recovery *time* specifically is not
@@ -174,9 +187,20 @@ Kafka was the original plan and is not the plan now. The log is an in-process li
 
 **Feedback demo:** a fresh checkout reaches a live run using documented commands.
 
-**Exit criteria:**
+**Done:**
 
-- New setup works from a clean local environment.
+- **Demo script** — [docs/demo.md](demo.md): a five-minute, documented-commands-only walkthrough
+  spanning both repos — clone, build, start a run, fall behind on purpose (worker/batch capacity),
+  fail and recover on purpose (`fail_snapshot_every`), drop and reconnect, look under the hood
+  (`task load`, `task observability:up`), finish and read the scorecard.
+- **Short performance report** — [docs/performance-report.md](performance-report.md), the
+  chain-digest-cost measurement that also closed an M3 exit criterion (see above).
+
+**Exit criteria still open:**
+
+- New setup works from a clean local environment — not yet verified against an actually clean
+  checkout; `docs/demo.md`'s setup section is untested end to end on a machine that never had this
+  project on it.
 - Unit, integration, and browser tests are documented and passing.
 - The demo explains both the game loop and the event-processing system.
 - Known limits and next experiments are recorded.

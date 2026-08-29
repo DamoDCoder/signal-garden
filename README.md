@@ -6,7 +6,7 @@ Signal Garden is a local-first real-time event-processing laboratory disguised a
 
 ## Status
 
-**v0.13.0 — M0, M1, and M2 complete; M3 in progress.** One Go process, an append-only event log, deterministic simulation, a live run engine behind a CLI projection, a gRPC service with a generated REST gateway, and a WebSocket projection stream a client can resume from a log offset. Run history is durable and replayable, and a run outlives the process that was serving it.
+**v0.13.0 — M0, M1, and M2 complete; M3's build done (one exit criterion open); M4 underway.** One Go process, an append-only event log, deterministic simulation, a live run engine behind a CLI projection, a gRPC service with a generated REST gateway, and a WebSocket projection stream a client can resume from a log offset. Run history is durable and replayable, and a run outlives the process that was serving it.
 
 This repository owns the contract and serves it. The React client and the Compose stack are in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden), which pins a tag here rather than tracking `main` — see [0011](docs/decisions/0011-the-ui-is-a-separate-repository.md) and [docs/roadmap.md](docs/roadmap.md).
 
@@ -151,6 +151,8 @@ Generated Go is committed, so a clean checkout builds without protoc. Only regen
 - [Contracts](docs/contracts.md): protobuf, gRPC, and REST surface (lands at M1).
 - [Events](docs/events.md): envelope, domain events, keys, ordering, and replay rules.
 - [Local Development](docs/local-development.md): dependencies and commands by milestone.
+- [Demo Script](docs/demo.md): a five-minute, documented-commands walkthrough across both repos.
+- [Performance Report](docs/performance-report.md): the M3/M4 chain-digest-cost measurement.
 - [Feedback](docs/feedback.md): checkpoints and the questions each milestone must answer.
 - [Decisions](docs/decisions/): short decision records with the evidence behind them.
 

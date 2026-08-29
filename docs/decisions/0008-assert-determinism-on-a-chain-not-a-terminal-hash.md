@@ -42,3 +42,50 @@ Two implementation notes that the plan for this record got wrong:
 
 - The garden rules lose their absorbing states entirely, at which point the terminal hash and the chain carry the same information — though the chain would still localise a divergence to a step, and the hash would not.
 - Chain digests become expensive enough at M3's event volumes to matter, which would be a reason to sample rather than to go back to the terminal hash.
+
+## Measured At M3
+
+The bullet above got a real number rather than staying a guess, using `task load` (which didn't
+exist when this record was written) against `signal_garden_tick_duration_seconds` (same). `fold()`
+calls `Garden.Digest()` once per event — a SHA-256 over every organism's state, `internal/domain/garden.go:151-159`
+— so the cost this bullet worried about is `organisms × events_per_tick` per tick, not per run.
+
+Seven scenarios, one fresh daemon each (metrics are process-lifetime and unlabeled by run — 0016 —
+so a shared process would let one scenario's numbers bleed into the next), `-workers 0 -batch 0` so
+the full production rate folds every tick rather than being throttled by the capacity model, `-duration 8s`,
+default 200ms tick interval. p50/p95/p99 are interpolated from the Prometheus histogram's cumulative
+buckets, which are coarse (`ExponentialBuckets(0.0005, 2, 16)`) — enough to place a number relative
+to the 200ms tick budget, not a precise one:
+
+| Scenario  | organisms | rate/tick | mean   | p50    | p95     | p99     |
+| --------- | --------: | --------: | -----: | -----: | ------: | ------: |
+| baseline  |        20 |         6 |  5.0ms |  6.0ms |   7.8ms |   8.0ms |
+| demo-lo   |        20 |        20 |  5.4ms |  6.0ms |   7.8ms |   8.0ms |
+| demo-hi   |        20 |       200 |  8.2ms |  7.6ms |  15.1ms |  15.8ms |
+| mid-lo    |       200 |        20 |  5.9ms |  6.1ms |   8.0ms |  14.4ms |
+| mid-hi    |       200 |       200 | 15.5ms | 13.7ms |  29.3ms |  31.5ms |
+| stress-lo |      2000 |        20 | 16.6ms | 14.2ms |  30.8ms | 102.4ms |
+| stress-hi |      2000 |       200 | 65.8ms | 69.8ms | 122.2ms | 126.8ms |
+
+**Not a straight line in organisms alone.** `baseline` → `mid-lo` is a 10× organism increase at the
+same rate and barely moves p50 (6.0ms → 6.1ms); `mid-lo` → `stress-lo` is another 10× and roughly
+doubles it. Something else — almost certainly the one-fsync-per-tick `Log.Append` does regardless of
+batch size (`internal/sim/sim.go`'s `Step()` doc comment) — sets a floor around 5–6ms that digest
+cost doesn't clear until organism count is already in the hundreds. Where it does show plainly is
+holding organisms fixed and raising the rate: `demo-lo` → `demo-hi`, `mid-lo` → `mid-hi`, and
+`stress-lo` → `stress-hi` all grow with event rate, and the *size* of that growth itself grows with
+organism count (roughly +2ms, +8ms, +56ms in mean respectively for the same 10× rate increase) — the
+multiplicative `organisms × events_per_tick` shape the bullet predicted, just masked by fixed
+per-tick overhead below a few hundred organisms.
+
+**Verdict: measured, not currently a bottleneck, explicitly documented rather than fixed.** No
+scenario's p95 reaches the 200ms tick budget — the worst, `stress-hi` at 2000 organisms and 200
+events/tick simultaneously, sits at 122ms (61% of budget) at p95 and 127ms at p99. That is a real
+garden two orders of magnitude past anything this project's own demo framing asks for ("garden
+interactions worth watching for five minutes," a handful of organisms). Sampling stays unwritten.
+
+**Revisit threshold:** a real (not load-test) scenario needing organism counts in the hundreds *and*
+event rates in the hundreds simultaneously — `stress-hi`'s regime, 2000 × 200 — where digest cost
+starts eating a majority of the tick budget rather than a fixed I/O floor dominating. Below that,
+this isn't worth the complexity sampling would add. Full methodology and the scrape data are in
+[docs/performance-report.md](../performance-report.md).
