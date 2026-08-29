@@ -4,16 +4,18 @@ Each milestone must end with something runnable, measurable, or reviewable. The 
 
 ## Status
 
-`main` at `v0.13.0`. M0–M2 done. M3 in progress, five slices landed as separate commits, not yet
-tagged — the convention on this branch is one tag per completed milestone, not one per slice, so
-the next tag is `v0.14.0`+ once M3's exit criteria are met, not before.
+`main` at `v0.13.0`, tagged — every M3 *build* item has shipped across both repos (client at
+`v0.4.0`). Two M3 *exit criteria* remain open (a documented bottleneck, recovery time specifically)
+— see below — so the milestone itself isn't tagged done yet; `v0.13.0`/`v0.4.0` mark "all the M3
+slices landed," not "M3 is closed." The next tag is `v0.14.0`+ once those two are addressed, or
+`v1.0.0`+ if M4 lands first and folds them in.
 
 | Milestone | State |
 | --- | --- |
 | M0: Contract Spike | ✅ Done |
 | M1: Local Vertical Slice | ✅ Done (client repo carries the browser half) |
 | M2: Event Backbone And Replay | ✅ Done |
-| M3: Failure And Performance Lab | 🚧 In progress |
+| M3: Failure And Performance Lab | 🚧 Build done, 2 exit criteria open |
 | M4: Showcase Release | ⬜ Not started |
 
 ### M3 deliverables
@@ -38,12 +40,14 @@ the next tag is `v0.14.0`+ once M3's exit criteria are met, not before.
       deliberately not per-event, which would need a `context.Context` threaded into `Sim.Step`.
       Exported OTLP/gRPC to an optional local endpoint (`SIGNAL_GARDEN_OTEL_ENDPOINT`); unset by
       default, tracing costs nothing. [0019](decisions/0019-traces-are-tick-and-rpc-grained-not-per-event.md)
-- [ ] **Compact in-app performance view** — client-repo, not started.
-- [ ] **Client sliders for `worker_count`/`batch_size`** — daemon and contract shipped this; the
-      client's `CONTRACT` pin and UI are a separate follow-up slice, scoped out on purpose when the
-      worker/batch slice landed.
+- [x] **Compact in-app performance view** — client-repo. The Pressure panel (built as part of M1)
+      now also shows `snapshot_save_retries`/`snapshot_save_failures`. Client `v0.4.0`.
+- [x] **Client sliders for `worker_count`/`batch_size`/`fail_snapshot_every`** — the client's
+      `CONTRACT` bumped to this repo's `v0.13.0`; all three are live-tunable sliders in the Controls
+      panel. Client `v0.4.0`.
 - [ ] **At least one bottleneck measured and improved or explicitly documented** (exit criterion) —
-      `task load` can now produce the measurement; nothing has been written up from one yet.
+      `task load` and the client's sliders can now produce the measurement; nothing has been written
+      up from one yet.
 - [ ] **Recovery time and failure behavior have repeatable scenarios** (exit criterion) — partially
       addressed: M2's crash matrix (`internal/sim/crash_test.go`) already gives repeatable
       unrecoverable-failure scenarios, and `fail_snapshot_every` now gives a repeatable recoverable
@@ -105,7 +109,7 @@ Kafka was the original plan and is not the plan now. The log is an in-process li
 - A run survives a simulated power cut at every tick boundary, in all three crash shapes, losing nothing the log acknowledged as durable.
 - Partition keys, snapshot cadence, and run retention are documented.
 
-## M3: Failure And Performance Lab — _in progress_
+## M3: Failure And Performance Lab
 
 **Goal:** make system behavior measurable and tunable.
 
@@ -125,7 +129,8 @@ Kafka was the original plan and is not the plan now. The log is an in-process li
   (nothing in the event-application path is CPU-bound enough to benefit from real parallelism); see
   [0017](decisions/0017-worker-count-and-batch-size-are-a-capacity-model-not-goroutines.md). A
   capacity below the production rate builds a genuine backlog and drains once it's raised again —
-  the feedback demo works end to end via `curl`.
+  the feedback demo works end to end via `curl` or `task load`, and now via sliders in the client's
+  Controls panel too (client `v0.4.0`).
 - `lag` is visible: `TelemetrySnapshot.pending` is real now that capacity can fall below production,
   and `signal_garden_pending_events` sums it across every run this process is serving (not
   last-writer-wins across concurrent runs — see 0016's amended revisit note).
@@ -134,14 +139,32 @@ Kafka was the original plan and is not the plan now. The log is an in-process li
   worked by hand via `curl`, now one command. It dials the generated `GardenServiceClient` directly
   rather than hand-rolling REST/JSON, so it exercises the same instrumented `grpcServer` the REST
   gateway calls internally.
+- `retries` are visible: `Controls.fail_snapshot_every` makes the periodic on-disk snapshot save
+  fail its first attempt and retry, deterministically. `snapshot_save_retries`/
+  `snapshot_save_failures` on `TelemetrySnapshot` and as global Prometheus counters. Targets the
+  snapshot save, not event processing — every event outcome is permanent given the garden's state,
+  so there's nothing transient to retry there. See
+  [0018](decisions/0018-failure-injection-targets-the-snapshot-save-not-event-processing.md).
+- OpenTelemetry traces: a span per gRPC call (`otelgrpc`, covering REST too) and a span per tick
+  (`run.id`/`tick` attributes, with an event when that tick's snapshot save retried or failed) —
+  deliberately not per-event. Exported OTLP/gRPC to an optional local endpoint
+  (`SIGNAL_GARDEN_OTEL_ENDPOINT`), unset by default so tracing costs nothing. See
+  [0019](decisions/0019-traces-are-tick-and-rpc-grained-not-per-event.md). The client's
+  `compose.observability.yaml` (`task observability:up`) brings up Prometheus and Jaeger alongside
+  the stack to see both live.
+- The worker-count/batch-size/fail-snapshot-every sliders have client UI now — the Controls panel in
+  app.signal-garden `v0.4.0`. A compact in-app performance view exists too: the client's Pressure
+  panel already had a rolling pressure history from M1 and now also shows the two new snapshot-save
+  counters.
 
 **Exit criteria still open:**
 
-- `retries` are not yet visible — there is no retry concept yet (failure injection's job).
-- At least one bottleneck is measured and improved or explicitly documented.
-- Recovery time and failure behavior have repeatable scenarios.
-- OpenTelemetry traces (run/event correlation) and a compact in-app performance view are not built.
-- The worker-count/batch-size sliders themselves are daemon+contract only so far — no client UI yet.
+- At least one bottleneck is measured and improved or explicitly documented. `task load` and the
+  client's sliders can now produce the measurement; nothing has been written up from one yet.
+- Recovery time and failure behavior have repeatable scenarios — partially: M2's crash matrix
+  (`internal/sim/crash_test.go`) gives repeatable unrecoverable-failure scenarios, and
+  `fail_snapshot_every` gives a repeatable recoverable one. Recovery *time* specifically is not
+  measured anywhere yet.
 
 ## M4: Showcase Release
 
