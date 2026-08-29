@@ -210,11 +210,14 @@ Kafka was the original plan and is not the plan now. The log is an in-process li
   transport in `cmd/signalgarden/load_test.go`) rather than pointing at "run `task test`" and
   leaving what it proves unstated. Browser tests are the client's, referenced from there. All
   green under `task check` (daemon) and `task check` + `task test-e2e` (client) as of this commit.
+- **Known limits and next experiments are recorded.** [docs/known-limits.md](known-limits.md) —
+  seven limits, each pointing at the decision record behind it rather than repeating the reasoning,
+  plus a Next Experiments section (catch-up cost measurement, recovery-time measurement, chain
+  digest sampling, per-event trace detail — each already scoped in the decision that deferred it).
 
 **Exit criteria still open:**
 
 - The demo explains both the game loop and the event-processing system.
-- Known limits and next experiments are recorded.
 
 ## Later Extensions
 

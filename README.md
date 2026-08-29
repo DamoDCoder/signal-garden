@@ -153,6 +153,7 @@ Generated Go is committed, so a clean checkout builds without protoc. Only regen
 - [Local Development](docs/local-development.md): dependencies and commands by milestone.
 - [Demo Script](docs/demo.md): a five-minute, documented-commands walkthrough across both repos.
 - [Performance Report](docs/performance-report.md): the M3/M4 chain-digest-cost measurement.
+- [Known Limits](docs/known-limits.md): what this daemon can't do or hasn't measured yet, and what's next.
 - [Feedback](docs/feedback.md): checkpoints and the questions each milestone must answer.
 - [Decisions](docs/decisions/): short decision records with the evidence behind them.
 
