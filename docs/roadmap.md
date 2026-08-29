@@ -204,10 +204,15 @@ Kafka was the original plan and is not the plan now. The log is an in-process li
   copy. Not a fully clean *machine*, though: same Docker image store, Go module cache, npm cache,
   and already-installed toolchain (Docker, Node, Go, `task`) as every other check in this session —
   a bare OS install isn't something this environment can test, and stays the real gap.
+- **Unit, integration, and browser tests are documented and passing.**
+  [docs/local-development.md](local-development.md)'s new Tests section names the tests that carry
+  the project's actual guarantees (determinism, crash survival, the reconnect handover, real
+  transport in `cmd/signalgarden/load_test.go`) rather than pointing at "run `task test`" and
+  leaving what it proves unstated. Browser tests are the client's, referenced from there. All
+  green under `task check` (daemon) and `task check` + `task test-e2e` (client) as of this commit.
 
 **Exit criteria still open:**
 
-- Unit, integration, and browser tests are documented and passing.
 - The demo explains both the game loop and the event-processing system.
 - Known limits and next experiments are recorded.
 

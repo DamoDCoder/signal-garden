@@ -37,6 +37,42 @@ To see a trace: `docker run --rm -p 16686:16686 -p 4317:4317 jaegertracing/all-i
 
 `task proto` needs protoc on the PATH. The plugins are pinned by the tool directives in `go.mod` and built into `bin/tools`, and the googleapis annotation protos are vendored in `third_party/`, so generation runs offline. Generated code is committed, so building and testing need none of this.
 
+## Tests
+
+```sh
+task test        # unit tests, no daemon needed
+task test-race    # the same, under the race detector
+task check        # fmt, vet, and test-race together — what CI-equivalent means here
+```
+
+Not one flat pile of unit tests — a few tests carry the actual guarantees this project makes, and
+are worth knowing by name rather than by package:
+
+- **Determinism.** `TestEngineMatchesBatchRun` (`internal/engine`) pins the live path to the batch
+  path — the same seed and the same control-change ticks have to land on the same garden whichever
+  one produced it. `TestTerminalHashAgreesWhereTheChainDoesNot` (`internal/domain`) is the reason
+  determinism is asserted on a `core.Chain` digest rather than a terminal hash — see
+  [0008](decisions/0008-assert-determinism-on-a-chain-not-a-terminal-hash.md).
+- **Crash survival.** `internal/sim/crash_test.go` simulates a power cut at every tick boundary, in
+  all three crash shapes event-spine's `sim.FS` can produce (`Crash`, `CrashExtend`, `CrashTorn`) —
+  a run has to lose nothing the log acknowledged as durable, and resume exactly where it stopped.
+- **The reconnect handover.** `TestResumeHandsOverWithoutAGapOrARepeat` and
+  `TestStreamResumeFromZeroRebuildsTheGarden` (`internal/engine`) assert the catch-up invariant —
+  `catchup.to` equals the next frame's `folded_offset` — by folding the catch-up records into an
+  empty garden and comparing hashes, not by trusting a record count.
+- **Real transport, not mocks.** `cmd/signalgarden/load_test.go` spins up a real gRPC server backed
+  by a real `engine.Registry` on a loopback port and drives `runLoad` against it — the same dial and
+  client code `task load` uses against a real daemon, not a stand-in for it.
+- **Browser tests** live in the client repository —
+  [`tests/e2e/primary-journey.spec.ts`](https://github.com/DamoDCoder/app.signal-garden/blob/main/tests/e2e/primary-journey.spec.ts),
+  `task test-e2e` there, against a daemon from `task serve` here. It needs a real daemon rather than
+  stubbing the transport, because the thing under test is that a browser and this daemon agree on
+  the contract.
+
+All of the above pass under `task check` as of this writing — the whole point of naming them here
+rather than only in code is that a claim like that stays checkable next time someone reads it,
+instead of being taken on faith.
+
 ## Local Principles
 
 - No cloud credentials for any milestone through M4.
