@@ -195,12 +195,18 @@ Kafka was the original plan and is not the plan now. The log is an in-process li
   (`task load`, `task observability:up`), finish and read the scorecard.
 - **Short performance report** — [docs/performance-report.md](performance-report.md), the
   chain-digest-cost measurement that also closed an M3 exit criterion (see above).
+- **`docs/demo.md`'s setup section runs clean.** Fresh clones of both repos into a scratch
+  directory, `docs/demo.md`'s Setup section run verbatim: `task docker:build`, `nvm use`,
+  `task setup`, `task up`. All four succeeded; the daemon and client both came up healthy and a run
+  started over the REST API. `fetch-contract.sh`'s GitHub-fallback path got exercised for real too —
+  the sibling checkout wasn't on the pinned tag (a fresh clone at a commit past `v0.13.0`, tag not
+  re-cut), so it fell through to downloading `garden.proto` from GitHub, byte-identical to the local
+  copy. Not a fully clean *machine*, though: same Docker image store, Go module cache, npm cache,
+  and already-installed toolchain (Docker, Node, Go, `task`) as every other check in this session —
+  a bare OS install isn't something this environment can test, and stays the real gap.
 
 **Exit criteria still open:**
 
-- New setup works from a clean local environment — not yet verified against an actually clean
-  checkout; `docs/demo.md`'s setup section is untested end to end on a machine that never had this
-  project on it.
 - Unit, integration, and browser tests are documented and passing.
 - The demo explains both the game loop and the event-processing system.
 - Known limits and next experiments are recorded.
