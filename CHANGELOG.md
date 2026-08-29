@@ -8,6 +8,31 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 Nothing yet.
 
+## [0.11.0] — 2026-08-29
+
+`task load`: a controlled event burst against a real running daemon.
+
+### Added
+
+- **`cmd/signalgarden -load`** (`task load`) drives a running `signalgardend` over its real gRPC
+  API — dials the generated `GardenServiceClient` directly rather than hand-rolling REST/JSON, so
+  it exercises the same instrumented `grpcServer` the REST gateway calls internally. Starts a run,
+  polls `GetTelemetry` on an interval for a configurable duration, finishes it, and prints a report
+  (timeline, processor stats, peak/final `pending`) via a new `internal/render.Load`.
+- `-workers`/`-batch` flags, wired into every mode's `Controls` (not just `-load`) — `domain.Controls`
+  has carried `WorkerCount`/`BatchSize` since the worker/batch slice, but the CLI never set them
+  until now.
+
+### Fixed
+
+- `-load` no longer collides with a previous burst's run ID on a persistent daemon. It reused the
+  shared `-run` flag's default (`"run-local"`), meaningless for a tool meant to run repeatedly
+  against durable history; unless `-run` is given explicitly, it now omits `run_id` and lets the
+  daemon generate a free one.
+- `-load`'s error wrapping no longer mislabels every `StartRun` failure as "no daemon running" — a
+  real RPC error (e.g. a run ID collision) now surfaces as itself; the connection-refused hint is
+  reserved for `codes.Unavailable`.
+
 ## [0.10.0] — 2026-08-29
 
 Worker count and batch size are real controls. A consumer can genuinely fall behind now.

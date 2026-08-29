@@ -82,13 +82,17 @@ Kafka was the original plan and is not the plan now. The log is an in-process li
 - `lag` is visible: `TelemetrySnapshot.pending` is real now that capacity can fall below production,
   and `signal_garden_pending_events` sums it across every run this process is serving (not
   last-writer-wins across concurrent runs — see 0016's amended revisit note).
+- **A local load test runs without cloud services.** `task load` (`cmd/signalgarden -load`) drives a
+  running daemon over its real gRPC API with a controlled event burst — the same feedback demo that
+  worked by hand via `curl`, now one command. It dials the generated `GardenServiceClient` directly
+  rather than hand-rolling REST/JSON, so it exercises the same instrumented `grpcServer` the REST
+  gateway calls internally.
 
 **Exit criteria still open:**
 
 - `retries` are not yet visible — there is no retry concept yet (failure injection's job).
 - At least one bottleneck is measured and improved or explicitly documented.
 - Recovery time and failure behavior have repeatable scenarios.
-- A local load test runs without cloud services.
 - OpenTelemetry traces (run/event correlation) and a compact in-app performance view are not built.
 - The worker-count/batch-size sliders themselves are daemon+contract only so far — no client UI yet.
 

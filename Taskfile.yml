@@ -1,8 +1,9 @@
 # Task runner for Signal Garden. Run `task --list` to see what is here.
 #
-# The dev, reset, load, and replay tasks in docs/local-development.md arrive
-# with the milestone that makes them meaningful, rather than sitting here
-# failing.
+# The dev and reset tasks in docs/local-development.md are the client repo's,
+# not this one's. `replay` is deliberately not a task here either — it takes a
+# run ID and a data directory only the person running it knows, so it stays
+# `go run ./cmd/signalgarden -replay -run <id> -data <dir>`.
 version: '3'
 
 vars:
@@ -93,6 +94,11 @@ tasks:
     desc: 'Run live: a frame per tick, steered by typed commands'
     cmds:
       - go run ./cmd/signalgarden -live -ticks 0 -interval 300ms {{.CLI_ARGS}}
+
+  load:
+    desc: 'Drive a running daemon over gRPC with a controlled event burst; needs task serve (or task up) running first'
+    cmds:
+      - go run ./cmd/signalgarden -load {{.CLI_ARGS}}
 
   serve:
     desc: Serve gRPC on :9090 and the generated REST gateway on :8080
