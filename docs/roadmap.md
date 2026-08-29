@@ -2,6 +2,42 @@
 
 Each milestone must end with something runnable, measurable, or reviewable. The roadmap favors early feedback over infrastructure completeness.
 
+## Status
+
+`main` at `v0.11.0`. M0–M2 done. M3 in progress, three slices landed as separate commits, not yet
+tagged — the convention on this branch is one tag per completed milestone, not one per slice, so
+the next tag is `v0.12.0`+ once M3's exit criteria are met, not before.
+
+| Milestone | State |
+| --- | --- |
+| M0: Contract Spike | ✅ Done |
+| M1: Local Vertical Slice | ✅ Done (client repo carries the browser half) |
+| M2: Event Backbone And Replay | ✅ Done |
+| M3: Failure And Performance Lab | 🚧 In progress |
+| M4: Showcase Release | ⬜ Not started |
+
+### M3 deliverables
+
+- [x] **Prometheus metrics** — `GET /metrics`: throughput, p50/p95/p99 latency, drops, WebSocket
+      freshness, lag. Deliberately no `run_id` label. [0016](decisions/0016-prometheus-metrics-carry-no-run-id-label.md)
+- [x] **Worker count / batch size** — real `Controls` fields; a capacity model
+      (`worker_count * batch_size`) rather than literal goroutines, since nothing in the event path
+      is CPU-bound enough to parallelize. [0017](decisions/0017-worker-count-and-batch-size-are-a-capacity-model-not-goroutines.md)
+- [x] **Load generator** — `task load` (`cmd/signalgarden -load`) drives a running daemon over its
+      real gRPC API with a controlled burst and reports what it observed. Daemon-repo only.
+- [ ] **Failure injection** — no retry concept exists yet; `duplicate_every` is the only
+      failure-injection-shaped control so far. Not started.
+- [ ] **OpenTelemetry traces** — run/event correlation, explicitly deferred out of the metrics
+      slice (0016). Not started.
+- [ ] **Compact in-app performance view** — client-repo, not started.
+- [ ] **Client sliders for `worker_count`/`batch_size`** — daemon and contract shipped this; the
+      client's `CONTRACT` pin and UI are a separate follow-up slice, scoped out on purpose when the
+      worker/batch slice landed.
+- [ ] **At least one bottleneck measured and improved or explicitly documented** (exit criterion) —
+      `task load` can now produce the measurement; nothing has been written up from one yet.
+- [ ] **Recovery time and failure behavior have repeatable scenarios** (exit criterion) — depends on
+      failure injection existing first.
+
 ## M0: Contract Spike
 
 **Goal:** prove the core event path and simulation rules with no external dependencies.
