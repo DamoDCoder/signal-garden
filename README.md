@@ -6,7 +6,7 @@ Signal Garden is a local-first real-time event-processing laboratory disguised a
 
 ## Status
 
-**v0.7.1 — M0 and M2 complete; M1's browser half lives elsewhere.** One Go process, an append-only event log, deterministic simulation, a live run engine behind a CLI projection, a gRPC service with a generated REST gateway, and a WebSocket projection stream a client can resume from a log offset. Run history is durable and replayable, and a run outlives the process that was serving it.
+**v0.8.1 — M0 and M2 complete; M1's browser half lives elsewhere.** One Go process, an append-only event log, deterministic simulation, a live run engine behind a CLI projection, a gRPC service with a generated REST gateway, and a WebSocket projection stream a client can resume from a log offset. Run history is durable and replayable, and a run outlives the process that was serving it.
 
 This repository owns the contract and serves it. The React client and the Compose stack are in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden), which pins a tag here rather than tracking `main` — see [0011](docs/decisions/0011-the-ui-is-a-separate-repository.md) and [docs/roadmap.md](docs/roadmap.md).
 
@@ -77,7 +77,7 @@ task docker:build          # cross-compile for linux, then build the image
 task docker:run            # serve from the image on :8080 and :9090
 ```
 
-The image is built locally and never pushed. `docker:build` tags it twice — `signal-garden/signalgardend:v0.7.1` and `:local` — and stamps the version into an image label, so a stack running `:local` can still be asked which contract it was built from. A cross-architecture build gets the version tag only: `:local` moves, and pointing it at an image this machine cannot run is a confusing way to fail. The compose file that runs it alongside the client lives in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden) and expects to find it in the local image store; this repository ships the image, not the stack. See [0015](docs/decisions/0015-ship-an-image-but-not-a-stack.md).
+The image is built locally and never pushed. `docker:build` tags it twice — `signal-garden/signalgardend:v0.8.1` and `:local` — and stamps the version into an image label, so a stack running `:local` can still be asked which contract it was built from. A cross-architecture build gets the version tag only: `:local` moves, and pointing it at an image this machine cannot run is a confusing way to fail. The compose file that runs it alongside the client lives in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden) and expects to find it in the local image store; this repository ships the image, not the stack. See [0015](docs/decisions/0015-ship-an-image-but-not-a-stack.md).
 
 The image copies a binary rather than compiling one, so `task build:docker` runs first — `docker:build` does that for you. That build is a *different platform* from `task build`: `darwin/arm64` for this machine, `linux/arm64` for the container, out of separate directories because a darwin binary in a Linux container fails with `exec format error` and does not say why. `ARCH=amd64` builds for an x86 machine instead.
 
@@ -113,7 +113,7 @@ Replay reaches the same snapshot hash the live run ended on, in a different proc
 
 ## Picking Up From Here
 
-`main` at `v0.7.1`, pushed to [DamoDCoder/signal-garden](https://github.com/DamoDCoder/signal-garden). Everything passes under `task check`.
+`main` at `v0.8.1`, pushed to [DamoDCoder/signal-garden](https://github.com/DamoDCoder/signal-garden). Everything passes under `task check`.
 
 Nothing here blocks the client. M2's exit criteria are met, M1's server half is done, and the contract is generated, versioned, and checked against the generator that consumes it. The next work in *this* repository is M3.
 
