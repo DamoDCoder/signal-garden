@@ -6,7 +6,7 @@ Signal Garden is a local-first real-time event-processing laboratory disguised a
 
 ## Status
 
-**v0.9.0 — M0, M1, and M2 complete; M3 in progress.** One Go process, an append-only event log, deterministic simulation, a live run engine behind a CLI projection, a gRPC service with a generated REST gateway, and a WebSocket projection stream a client can resume from a log offset. Run history is durable and replayable, and a run outlives the process that was serving it.
+**v0.10.0 — M0, M1, and M2 complete; M3 in progress.** One Go process, an append-only event log, deterministic simulation, a live run engine behind a CLI projection, a gRPC service with a generated REST gateway, and a WebSocket projection stream a client can resume from a log offset. Run history is durable and replayable, and a run outlives the process that was serving it.
 
 This repository owns the contract and serves it. The React client and the Compose stack are in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden), which pins a tag here rather than tracking `main` — see [0011](docs/decisions/0011-the-ui-is-a-separate-repository.md) and [docs/roadmap.md](docs/roadmap.md).
 
@@ -77,7 +77,7 @@ task docker:build          # cross-compile for linux, then build the image
 task docker:run            # serve from the image on :8080 and :9090
 ```
 
-The image is built locally and never pushed. `docker:build` tags it twice — `signal-garden/signalgardend:v0.9.0` and `:local` — and stamps the version into an image label, so a stack running `:local` can still be asked which contract it was built from. A cross-architecture build gets the version tag only: `:local` moves, and pointing it at an image this machine cannot run is a confusing way to fail. The compose file that runs it alongside the client lives in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden) and expects to find it in the local image store; this repository ships the image, not the stack. See [0015](docs/decisions/0015-ship-an-image-but-not-a-stack.md).
+The image is built locally and never pushed. `docker:build` tags it twice — `signal-garden/signalgardend:v0.10.0` and `:local` — and stamps the version into an image label, so a stack running `:local` can still be asked which contract it was built from. A cross-architecture build gets the version tag only: `:local` moves, and pointing it at an image this machine cannot run is a confusing way to fail. The compose file that runs it alongside the client lives in [app.signal-garden](https://github.com/DamoDCoder/app.signal-garden) and expects to find it in the local image store; this repository ships the image, not the stack. See [0015](docs/decisions/0015-ship-an-image-but-not-a-stack.md).
 
 The image copies a binary rather than compiling one, so `task build:docker` runs first — `docker:build` does that for you. That build is a *different platform* from `task build`: `darwin/arm64` for this machine, `linux/arm64` for the container, out of separate directories because a darwin binary in a Linux container fails with `exec format error` and does not say why. `ARCH=amd64` builds for an x86 machine instead.
 
@@ -113,11 +113,11 @@ Replay reaches the same snapshot hash the live run ended on, in a different proc
 
 ## Picking Up From Here
 
-`main` at `v0.9.0`, pushed to [DamoDCoder/signal-garden](https://github.com/DamoDCoder/signal-garden). Everything passes under `task check`.
+`main` at `v0.10.0`, pushed to [DamoDCoder/signal-garden](https://github.com/DamoDCoder/signal-garden). Everything passes under `task check`.
 
 Nothing here blocks the client. M1 and M2's exit criteria are both met, and the contract is generated, versioned, and checked against the generator that consumes it. M3 is in progress in *this* repository.
 
-**M3's metrics foundation is done.** `GET /metrics` is a Prometheus scrape target: tick duration, gRPC/REST call duration, events processed, snapshots dropped, and WebSocket freshness. Deliberately no `run_id` label, to keep cardinality bounded — see [0016](docs/decisions/0016-prometheus-metrics-carry-no-run-id-label.md). Still open: `lag`, `retries`, OpenTelemetry traces, the in-app performance view, worker/batch controls, a load generator, and failure injection — see [docs/roadmap.md](docs/roadmap.md).
+**M3's metrics foundation and capacity controls are done.** `GET /metrics` is a Prometheus scrape target: tick duration, gRPC/REST call duration, events processed, snapshots dropped, WebSocket freshness, and now `pending` (consumer lag), summed across every run rather than last-writer-wins. Deliberately no `run_id` label anywhere, to keep cardinality bounded — see [0016](docs/decisions/0016-prometheus-metrics-carry-no-run-id-label.md). `worker_count` and `batch_size` are real `Controls` fields: together they cap how many records one tick folds, as a capacity model rather than literal goroutines — see [0017](docs/decisions/0017-worker-count-and-batch-size-are-a-capacity-model-not-goroutines.md). Daemon and contract only so far; no client sliders yet. Still open: `retries`, OpenTelemetry traces, the in-app performance view, a load generator, and failure injection — see [docs/roadmap.md](docs/roadmap.md).
 
 **M2's exit criteria are met.** Duplicate delivery ✓, reconnect catch-up ✓, replay determinism on a chain ✓, crash survival ✓, keys and retention documented ✓.
 
@@ -131,12 +131,12 @@ Pin a tag rather than tracking `main`. `v0.7.0` is the first with `Run.resumed` 
 
 ### 1. The rest of M3, the failure and performance lab
 
-Metrics are done — see above. Left: load generator, failure injection, OpenTelemetry traces, and worker-count/batch-size controls. It is also where two deferrals finally get numbers instead of guesses:
+Metrics and worker-count/batch-size are done — see above. Left: load generator, failure injection, OpenTelemetry traces, and client sliders for the two new controls. It is also where two deferrals finally get numbers instead of guesses:
 
 - **Catch-up cost.** Resuming from a deep offset reads the whole gap on the run's own goroutine — a slice copy at M2's volumes, a measurable pause at M3's. [0009](docs/decisions/0009-catch-up-is-a-command-to-the-run-not-a-second-reader.md) records the fix and why it is deliberately unwritten: it wants a measurement, not a guess.
 - **Chain digest cost.** [0008](docs/decisions/0008-assert-determinism-on-a-chain-not-a-terminal-hash.md) allows for sampling if folding a digest per record becomes expensive at M3's event rates.
 
-Worker count and batch size become real controls here, which is the deferral the `Controls` message in the contract has been carrying a note about since M0.
+Worker count and batch size are real controls now — see above and [0017](docs/decisions/0017-worker-count-and-batch-size-are-a-capacity-model-not-goroutines.md).
 
 ## The Contract
 

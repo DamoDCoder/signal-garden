@@ -41,16 +41,25 @@ enum RunState {
 }
 
 // Controls are the knobs a player turns during a run: how many events each
-// tick produces, and the relative mix of event types.
+// tick produces, the relative mix of event types, and how much of a tick's
+// production the processor drains before the rest waits for a later tick.
 //
-// Worker count, batch size, and retry policy are M3's, not M2's. They are
-// meaningless while the processor drains inside the tick, so they are not
-// reserved here; new controls take new field numbers when they become real.
+// Retry policy is failure injection's, not this slice's, and still has no
+// field: new controls take new field numbers when they become real.
 message Controls {
   int32 events_per_tick = 1 [json_name = "events_per_tick"];
   int32 rain_weight = 2 [json_name = "rain_weight"];
   int32 growth_weight = 3 [json_name = "growth_weight"];
   int32 pest_weight = 4 [json_name = "pest_weight"];
+
+  // worker_count and batch_size together cap how many records one tick folds
+  // into the garden: worker_count * batch_size. Zero on either means
+  // unbounded — the tick drains everything it produced, same as before this
+  // pair existed. A capacity below the production rate is what makes
+  // TelemetrySnapshot.pending genuinely nonzero, rather than a value that is
+  // always zero because nothing ever falls behind. See docs/decisions/0017.
+  int32 worker_count = 5 [json_name = "worker_count"];
+  int32 batch_size = 6 [json_name = "batch_size"];
 }
 
 // Run is the lifecycle view of a simulation.

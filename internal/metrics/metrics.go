@@ -10,6 +10,7 @@ package metrics
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -31,6 +32,18 @@ type Recorder struct {
 	eventsProcessed  *prometheus.CounterVec
 	snapshotsDropped prometheus.Counter
 	lastPublish      prometheus.Gauge
+
+	// pendingByRun backs the pending gauge. It is a private map rather than a
+	// run_id-labeled Prometheus vector — a Gauge here would be last-writer-wins
+	// across every run ticking this process, silently reporting whichever run
+	// happened to tick most recently instead of the real total, which is wrong
+	// in exactly the case this metric exists for: a backlogged run's lag
+	// hidden behind an idle run's zero. Summing a private map at scrape time
+	// (via GaugeFunc) gets the right number without a run_id label on the
+	// exposed series. Entries are removed when a run finishes (ForgetRun), so
+	// the map stays bounded by live runs, not every run a session ever saw.
+	pendingMu    sync.Mutex
+	pendingByRun map[string]float64
 }
 
 // New constructs a Recorder with its own registry, so a process wires at
@@ -61,7 +74,13 @@ func New() *Recorder {
 			Name: "signal_garden_last_publish_timestamp_seconds",
 			Help: "Unix time of the last projection frame sent to any subscriber. time() minus this is WebSocket freshness.",
 		}),
+		pendingByRun: make(map[string]float64),
 	}
+
+	pendingTotal := prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "signal_garden_pending_events",
+		Help: "Records appended but not yet folded into a garden, summed across every run this process is serving. Consumer lag.",
+	}, r.totalPending)
 
 	reg.MustRegister(
 		r.tickDuration,
@@ -69,6 +88,7 @@ func New() *Recorder {
 		r.eventsProcessed,
 		r.snapshotsDropped,
 		r.lastPublish,
+		pendingTotal,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
@@ -113,6 +133,41 @@ func (r *Recorder) ObservePublish() {
 		return
 	}
 	r.lastPublish.SetToCurrentTime()
+}
+
+// ObservePending records how many records one run has appended but not yet
+// folded, as of the tick that just completed.
+func (r *Recorder) ObservePending(runID string, n int) {
+	if r == nil {
+		return
+	}
+	r.pendingMu.Lock()
+	r.pendingByRun[runID] = float64(n)
+	r.pendingMu.Unlock()
+}
+
+// ForgetRun drops a run's contribution to the pending total. Call it once a
+// run finishes, so the total reflects only runs still capable of falling
+// behind, and the map does not grow for the life of the process.
+func (r *Recorder) ForgetRun(runID string) {
+	if r == nil {
+		return
+	}
+	r.pendingMu.Lock()
+	delete(r.pendingByRun, runID)
+	r.pendingMu.Unlock()
+}
+
+// totalPending sums every live run's pending count. It is the ValueFunc
+// behind the signal_garden_pending_events GaugeFunc.
+func (r *Recorder) totalPending() float64 {
+	r.pendingMu.Lock()
+	defer r.pendingMu.Unlock()
+	var total float64
+	for _, n := range r.pendingByRun {
+		total += n
+	}
+	return total
 }
 
 // UnaryServerInterceptor times every unary gRPC call and observes

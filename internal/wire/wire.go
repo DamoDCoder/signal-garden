@@ -31,6 +31,8 @@ func ControlsFrom(c *gardenv1.Controls) domain.Controls {
 		RainWeight:    int(c.GetRainWeight()),
 		GrowthWeight:  int(c.GetGrowthWeight()),
 		PestWeight:    int(c.GetPestWeight()),
+		WorkerCount:   int(c.GetWorkerCount()),
+		BatchSize:     int(c.GetBatchSize()),
 	}
 }
 
@@ -40,6 +42,8 @@ func Controls(c domain.Controls) *gardenv1.Controls {
 		RainWeight:    int32(c.RainWeight),
 		GrowthWeight:  int32(c.GrowthWeight),
 		PestWeight:    int32(c.PestWeight),
+		WorkerCount:   int32(c.WorkerCount),
+		BatchSize:     int32(c.BatchSize),
 	}
 }
 

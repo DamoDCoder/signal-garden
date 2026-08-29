@@ -1034,6 +1034,7 @@ func (r *liveRun) advance() {
 		r.finish()
 		return
 	}
+	r.metrics.ObservePending(r.req.RunID, r.sim.Pending())
 	r.publish()
 	if r.req.MaxTicks > 0 && r.sim.Tick() >= r.req.MaxTicks {
 		r.finish()
@@ -1061,6 +1062,12 @@ func (r *liveRun) finish() {
 	r.stopTicker()
 	r.publish()
 	r.closeSubs(SubscriptionClosedRunFinished)
+
+	// A finished run cannot fall further behind, and its last observed
+	// pending count (usually zero — finish drains what it can first) has
+	// nothing left to say about consumer lag. Dropping it keeps the pending
+	// total describing runs still capable of building a backlog.
+	r.metrics.ForgetRun(r.req.RunID)
 }
 
 func (r *liveRun) stopTicker() {

@@ -8,6 +8,37 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 Nothing yet.
 
+## [0.10.0] — 2026-08-29
+
+Worker count and batch size are real controls. A consumer can genuinely fall behind now.
+
+### Added
+
+- **`Controls.worker_count` and `Controls.batch_size`** (new proto fields, `Controls` message).
+  Together they cap how many log records one tick folds into the garden —
+  `worker_count * batch_size` — instead of unconditionally draining everything a tick produced.
+  Zero on either means unbounded, the behavior before this pair existed, so every run that doesn't
+  set them is unaffected. This is a capacity model, not a worker pool: nothing in the event-
+  application path is CPU-bound enough to benefit from real goroutines, and the determinism chain
+  requires strict sequence ordering regardless. See
+  [0017](docs/decisions/0017-worker-count-and-batch-size-are-a-capacity-model-not-goroutines.md).
+- **`signal_garden_pending_events`** (Prometheus gauge) — `TelemetrySnapshot.pending` was always
+  zero before this slice; now that a capacity below the production rate genuinely builds a backlog,
+  this closes the `lag` item M3's metrics slice deferred. Summed across every run this process is
+  serving via a private per-run map, not a plain last-writer-wins gauge — a quiet run ticking after
+  a backlogged one must not erase the backlog's visibility. See 0016's amended revisit note.
+- `eventlog.Log.UnprocessedUpTo(n)` — the capacity-bounded read `Sim.Step()` now uses;
+  `Unprocessed()` is unchanged, a thin wrapper over `UnprocessedUpTo(0)`.
+
+### Changed
+
+- `Controls.Validate()` rejects negative `worker_count`/`batch_size` and bounds them
+  (`MaxWorkerCount = 64`, `MaxBatchSize = MaxEventsPerTick`), same typo-guard rationale as the
+  existing `MaxEventsPerTick`.
+
+Client-side sliders for these two controls are not built yet — this slice is daemon and contract
+only. See [docs/roadmap.md](docs/roadmap.md).
+
 ## [0.9.0] — 2026-08-29
 
 M3's metrics foundation: a `GET /metrics` Prometheus scrape target.

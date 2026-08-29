@@ -46,6 +46,47 @@ func TestObserveSnapshotDropped(t *testing.T) {
 	}
 }
 
+func TestObservePending(t *testing.T) {
+	r := New()
+	r.ObservePending("run-a", 7)
+
+	if got := r.totalPending(); got != 7 {
+		t.Errorf("totalPending = %v, want 7", got)
+	}
+
+	r.ObservePending("run-a", 0)
+	if got := r.totalPending(); got != 0 {
+		t.Errorf("totalPending after drain = %v, want 0", got)
+	}
+}
+
+// TestObservePendingSumsAcrossRuns is the regression for the bug this design
+// exists to avoid: a plain Gauge would be last-writer-wins, so a quiet run
+// ticking after a backlogged one would silently report the backlog as zero.
+func TestObservePendingSumsAcrossRuns(t *testing.T) {
+	r := New()
+	r.ObservePending("run-backlogged", 112)
+	r.ObservePending("run-quiet", 0)
+
+	if got := r.totalPending(); got != 112 {
+		t.Errorf("totalPending = %v, want 112 (a quiet run's zero must not erase another run's backlog)", got)
+	}
+}
+
+// TestForgetRunDropsItsContribution confirms a finished run stops counting
+// toward the total, so the pending metric describes only runs still capable
+// of falling behind.
+func TestForgetRunDropsItsContribution(t *testing.T) {
+	r := New()
+	r.ObservePending("run-a", 5)
+	r.ObservePending("run-b", 3)
+	r.ForgetRun("run-a")
+
+	if got := r.totalPending(); got != 3 {
+		t.Errorf("totalPending after ForgetRun = %v, want 3", got)
+	}
+}
+
 func TestObservePublish(t *testing.T) {
 	r := New()
 	before := time.Now().Unix()
@@ -85,6 +126,7 @@ func TestHandlerServesExpositionFormat(t *testing.T) {
 	r.ObserveEvent("applied")
 	r.ObserveSnapshotDropped()
 	r.ObservePublish()
+	r.ObservePending("run-a", 3)
 	interceptor := r.UnaryServerInterceptor()
 	handler := func(ctx context.Context, req any) (any, error) { return nil, nil }
 	_, _ = interceptor(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: "/x"}, handler)
@@ -103,6 +145,7 @@ func TestHandlerServesExpositionFormat(t *testing.T) {
 		"signal_garden_events_processed_total",
 		"signal_garden_snapshots_dropped_total",
 		"signal_garden_last_publish_timestamp_seconds",
+		"signal_garden_pending_events",
 	} {
 		if !contains(body, want) {
 			t.Errorf("response missing metric %q", want)
@@ -129,6 +172,8 @@ func TestNilRecorderIsSafe(t *testing.T) {
 	r.ObserveEvent("applied")
 	r.ObserveSnapshotDropped()
 	r.ObservePublish()
+	r.ObservePending("run-a", 3)
+	r.ForgetRun("run-a")
 
 	interceptor := r.UnaryServerInterceptor()
 	info := &grpc.UnaryServerInfo{FullMethod: "/x"}

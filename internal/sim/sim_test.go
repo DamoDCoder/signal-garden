@@ -124,10 +124,47 @@ func TestPendingIsZeroBetweenSteps(t *testing.T) {
 	mustStep(t, s, 5)
 
 	if got := s.Pending(); got != 0 {
-		t.Errorf("pending = %d, want 0; the processor drains inside the tick until M2", got)
+		t.Errorf("pending = %d, want 0; default controls have no processing capacity limit, so a tick drains everything it produced", got)
 	}
 	if s.ProcessorStats().Received != s.Published() {
 		t.Errorf("received %d of %d published", s.ProcessorStats().Received, s.Published())
+	}
+}
+
+// TestCapacityBelowProductionBuildsPending is the other half of
+// TestPendingIsZeroBetweenSteps: once worker_count and batch_size cap what a
+// tick can fold below what it produces, Pending has to become genuinely
+// nonzero — that is the whole point of the capacity model. See
+// docs/decisions/0017.
+func TestCapacityBelowProductionBuildsPending(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Controls.EventsPerTick = 10
+	cfg.Controls.WorkerCount = 1
+	cfg.Controls.BatchSize = 4 // capacity 4/tick, production 10/tick
+	s := mustNew(t, cfg)
+
+	mustStep(t, s, 1)
+	if got := s.Pending(); got != 6 {
+		t.Errorf("pending after 1 step = %d, want 6 (10 produced - 4 folded)", got)
+	}
+
+	mustStep(t, s, 1)
+	if got := s.Pending(); got != 12 {
+		t.Errorf("pending after 2 steps = %d, want 12 (20 produced - 8 folded)", got)
+	}
+
+	// Raise capacity above production and confirm the backlog drains rather
+	// than staying stuck: a capacity model has to recover, not just fall
+	// behind and never catch back up.
+	if _, err := s.SetControls(domain.Controls{
+		EventsPerTick: 1, RainWeight: 1, GrowthWeight: 1, PestWeight: 1,
+		WorkerCount: 4, BatchSize: 10, // capacity 40/tick, production 1/tick
+	}); err != nil {
+		t.Fatalf("SetControls: %v", err)
+	}
+	mustStep(t, s, 20) // far more ticks than the backlog needs to drain
+	if got := s.Pending(); got != 0 {
+		t.Errorf("pending after raising capacity = %d, want 0 (drained)", got)
 	}
 }
 

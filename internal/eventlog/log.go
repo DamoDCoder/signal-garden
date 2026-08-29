@@ -169,8 +169,19 @@ func (l *Log) Append(events ...event.Event) error {
 // the cursor has reached the tail, and a later call after more appends
 // continues from the same place.
 func (l *Log) Unprocessed() ([]event.Event, error) {
+	return l.UnprocessedUpTo(0)
+}
+
+// UnprocessedUpTo reads at most n records the projection has not folded yet,
+// advancing the cursor only that far. n <= 0 means unbounded, same as
+// Unprocessed.
+//
+// Records left unread stay unread: a later call picks up exactly where this
+// one stopped, which is what makes a processing capacity below the
+// production rate build a real backlog rather than lose records.
+func (l *Log) UnprocessedUpTo(n int) ([]event.Event, error) {
 	var out []event.Event
-	for {
+	for n <= 0 || len(out) < n {
 		rec, err := l.reader.Next()
 		if errors.Is(err, spinelog.ErrEndOfLog) {
 			return out, nil
@@ -184,6 +195,7 @@ func (l *Log) Unprocessed() ([]event.Event, error) {
 		}
 		out = append(out, e)
 	}
+	return out, nil
 }
 
 // Replay reads the whole history from the log's first surviving record.

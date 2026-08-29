@@ -81,6 +81,60 @@ func TestAppendThenRead(t *testing.T) {
 	}
 }
 
+// UnprocessedUpTo(0) has to behave exactly like Unprocessed — it is the
+// implementation Unprocessed delegates to.
+func TestUnprocessedUpToZeroIsUnbounded(t *testing.T) {
+	l := open(t, spinesim.NewFS())
+	defer l.Close()
+
+	want := []event.Event{rain("evt-1", 0, 1), rain("evt-2", 0, 2), rain("evt-3", 1, 3)}
+	if err := l.Append(want...); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+
+	got, err := l.UnprocessedUpTo(0)
+	if err != nil {
+		t.Fatalf("UnprocessedUpTo(0) error = %v", err)
+	}
+	if !equal(ids(got), ids(want)) {
+		t.Errorf("UnprocessedUpTo(0) = %v, want %v", ids(got), ids(want))
+	}
+}
+
+// A capacity below what was appended must leave the rest for a later call —
+// that is the mechanism a processing capacity uses to build a real backlog.
+func TestUnprocessedUpToLeavesTheRestForNextTime(t *testing.T) {
+	l := open(t, spinesim.NewFS())
+	defer l.Close()
+
+	all := []event.Event{rain("evt-1", 0, 1), rain("evt-2", 0, 2), rain("evt-3", 0, 3), rain("evt-4", 0, 4)}
+	if err := l.Append(all...); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+
+	first, err := l.UnprocessedUpTo(2)
+	if err != nil {
+		t.Fatalf("UnprocessedUpTo(2) error = %v", err)
+	}
+	if !equal(ids(first), ids(all[:2])) {
+		t.Errorf("first UnprocessedUpTo(2) = %v, want %v", ids(first), ids(all[:2]))
+	}
+	if got := l.Pending(); got != 2 {
+		t.Errorf("Pending() after first call = %d, want 2", got)
+	}
+
+	second, err := l.UnprocessedUpTo(10) // more than remains — should return only what's left
+	if err != nil {
+		t.Fatalf("second UnprocessedUpTo error = %v", err)
+	}
+	if !equal(ids(second), ids(all[2:])) {
+		t.Errorf("second UnprocessedUpTo = %v, want %v", ids(second), ids(all[2:]))
+	}
+	if got := l.Pending(); got != 0 {
+		t.Errorf("Pending() after draining = %d, want 0", got)
+	}
+}
+
 // Catching up is a place a reader waits, not a place it stops. The same cursor
 // has to keep going once more records arrive, because the run appends a tick at
 // a time and reads after every one.

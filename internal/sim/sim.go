@@ -198,8 +198,10 @@ func (s *Sim) SetControls(c domain.Controls) (int, error) {
 }
 
 // Step advances the simulation by exactly one tick: stage control changes,
-// produce this tick's events, append them, then fold whatever the projection
-// has not seen.
+// produce this tick's events, append them, then fold up to the controls'
+// processing capacity of what the projection has not seen. A capacity below
+// what a tick produces leaves the rest for a later Step to pick up, which is
+// what makes Pending genuinely nonzero — see Controls.Capacity.
 //
 // The whole tick is one Append call. The log makes its durability decision once
 // per call rather than once per record, so a tick costs one fsync no matter how
@@ -236,7 +238,7 @@ func (s *Sim) Step() error {
 	}
 	s.published += len(batch)
 
-	unprocessed, err := s.log.Unprocessed()
+	unprocessed, err := s.log.UnprocessedUpTo(s.controls.Capacity())
 	if err != nil {
 		return fmt.Errorf("read at tick %d: %w", s.tick, err)
 	}

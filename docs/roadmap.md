@@ -73,17 +73,24 @@ Kafka was the original plan and is not the plan now. The log is an in-process li
   `signal_garden_events_processed_total`, `signal_garden_snapshots_dropped_total`. WebSocket
   freshness is visible too, via `signal_garden_last_publish_timestamp_seconds`. Deliberately global,
   not per-run — see [0016](decisions/0016-prometheus-metrics-carry-no-run-id-label.md).
+- Worker count and batch size are real `Controls` fields. Together they cap how many records one
+  tick folds — `worker_count * batch_size` — as a capacity model rather than literal goroutines
+  (nothing in the event-application path is CPU-bound enough to benefit from real parallelism); see
+  [0017](decisions/0017-worker-count-and-batch-size-are-a-capacity-model-not-goroutines.md). A
+  capacity below the production rate builds a genuine backlog and drains once it's raised again —
+  the feedback demo works end to end via `curl`.
+- `lag` is visible: `TelemetrySnapshot.pending` is real now that capacity can fall below production,
+  and `signal_garden_pending_events` sums it across every run this process is serving (not
+  last-writer-wins across concurrent runs — see 0016's amended revisit note).
 
 **Exit criteria still open:**
 
-- `lag` and `retries` are not yet visible — `TelemetrySnapshot.pending` is always zero until
-  processing is concurrent enough to lag (the worker-count/batch-size slice below), and there is no
-  retry concept yet (failure injection's job).
+- `retries` are not yet visible — there is no retry concept yet (failure injection's job).
 - At least one bottleneck is measured and improved or explicitly documented.
 - Recovery time and failure behavior have repeatable scenarios.
 - A local load test runs without cloud services.
 - OpenTelemetry traces (run/event correlation) and a compact in-app performance view are not built.
-- Worker count and batch size are not yet real controls.
+- The worker-count/batch-size sliders themselves are daemon+contract only so far — no client UI yet.
 
 ## M4: Showcase Release
 

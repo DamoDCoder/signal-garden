@@ -10,17 +10,37 @@ import (
 // rather than an accident.
 const MaxEventsPerTick = 1000
 
+// MaxWorkerCount and MaxBatchSize bound the processing capacity controls for
+// the same reason MaxEventsPerTick bounds production: a typo should not be
+// able to claim an unbounded number.
+const (
+	MaxWorkerCount = 64
+	MaxBatchSize   = MaxEventsPerTick
+)
+
 // Controls are the knobs a player turns during a run.
 //
-// M0 exposes only rate and event mix. Worker count, batch size, and retry
-// policy are meaningless while the projection folds every record inside the
-// tick that appended it, so they arrive when the consumer can actually fall
-// behind rather than sitting here as inert fields.
+// WorkerCount and BatchSize cap how many records one tick folds into the
+// garden — worker_count * batch_size — rather than draining everything the
+// tick produced. Zero on either means unbounded, the behavior before this
+// pair existed. Retry policy is still not here: it is failure injection's,
+// not this pair's. See docs/decisions/0017.
 type Controls struct {
 	EventsPerTick int `json:"events_per_tick"`
 	RainWeight    int `json:"rain_weight"`
 	GrowthWeight  int `json:"growth_weight"`
 	PestWeight    int `json:"pest_weight"`
+	WorkerCount   int `json:"worker_count"`
+	BatchSize     int `json:"batch_size"`
+}
+
+// Capacity returns how many records one tick may fold into the garden.
+// Zero means unbounded: the tick drains everything Unprocessed returns.
+func (c Controls) Capacity() int {
+	if c.WorkerCount <= 0 || c.BatchSize <= 0 {
+		return 0
+	}
+	return c.WorkerCount * c.BatchSize
 }
 
 // ErrInvalidControls wraps every control validation failure.
@@ -47,6 +67,18 @@ func (c Controls) Validate() error {
 	}
 	if c.TotalWeight() == 0 {
 		return fmt.Errorf("%w: at least one event weight must be positive", ErrInvalidControls)
+	}
+	if c.WorkerCount < 0 {
+		return fmt.Errorf("%w: worker_count must not be negative, got %d", ErrInvalidControls, c.WorkerCount)
+	}
+	if c.WorkerCount > MaxWorkerCount {
+		return fmt.Errorf("%w: worker_count must not exceed %d, got %d", ErrInvalidControls, MaxWorkerCount, c.WorkerCount)
+	}
+	if c.BatchSize < 0 {
+		return fmt.Errorf("%w: batch_size must not be negative, got %d", ErrInvalidControls, c.BatchSize)
+	}
+	if c.BatchSize > MaxBatchSize {
+		return fmt.Errorf("%w: batch_size must not exceed %d, got %d", ErrInvalidControls, MaxBatchSize, c.BatchSize)
 	}
 	return nil
 }

@@ -19,6 +19,11 @@ func TestControlsValidate(t *testing.T) {
 		{"single non-zero weight is valid", func(c *Controls) {
 			c.RainWeight, c.GrowthWeight, c.PestWeight = 1, 0, 0
 		}, false},
+		{"zero worker count and batch size is valid (unbounded)", func(c *Controls) {
+			c.WorkerCount, c.BatchSize = 0, 0
+		}, false},
+		{"max worker count is valid", func(c *Controls) { c.WorkerCount = MaxWorkerCount }, false},
+		{"max batch size is valid", func(c *Controls) { c.BatchSize = MaxBatchSize }, false},
 
 		{"zero rate rejected", func(c *Controls) { c.EventsPerTick = 0 }, true},
 		{"negative rate rejected", func(c *Controls) { c.EventsPerTick = -1 }, true},
@@ -29,6 +34,10 @@ func TestControlsValidate(t *testing.T) {
 		{"all-zero mix rejected", func(c *Controls) {
 			c.RainWeight, c.GrowthWeight, c.PestWeight = 0, 0, 0
 		}, true},
+		{"negative worker count rejected", func(c *Controls) { c.WorkerCount = -1 }, true},
+		{"worker count above max rejected", func(c *Controls) { c.WorkerCount = MaxWorkerCount + 1 }, true},
+		{"negative batch size rejected", func(c *Controls) { c.BatchSize = -1 }, true},
+		{"batch size above max rejected", func(c *Controls) { c.BatchSize = MaxBatchSize + 1 }, true},
 	}
 
 	for _, tc := range tests {
@@ -77,5 +86,29 @@ func TestTotalWeight(t *testing.T) {
 	c := Controls{RainWeight: 3, GrowthWeight: 2, PestWeight: 1}
 	if got := c.TotalWeight(); got != 6 {
 		t.Errorf("TotalWeight() = %d, want 6", got)
+	}
+}
+
+func TestCapacity(t *testing.T) {
+	tests := []struct {
+		name        string
+		workerCount int
+		batchSize   int
+		want        int
+	}{
+		{"both zero is unbounded", 0, 0, 0},
+		{"worker count zero is unbounded", 0, 5, 0},
+		{"batch size zero is unbounded", 5, 0, 0},
+		{"both positive multiplies", 2, 3, 6},
+		{"negative worker count is unbounded", -1, 5, 0},
+		{"negative batch size is unbounded", 5, -1, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := Controls{WorkerCount: tc.workerCount, BatchSize: tc.batchSize}
+			if got := c.Capacity(); got != tc.want {
+				t.Errorf("Capacity() = %d, want %d", got, tc.want)
+			}
+		})
 	}
 }

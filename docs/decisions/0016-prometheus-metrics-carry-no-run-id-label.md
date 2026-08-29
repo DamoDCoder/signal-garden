@@ -57,6 +57,11 @@ question goes to `GET /v1/runs/{run_id}/telemetry`, which already answers it, or
 - A real need to compare metrics *across* runs on a dashboard, in a way the REST poll can't serve —
   at which point option 2 (aggregate collector) is worth building, since the fan-out machinery would
   finally be paying for something the REST poll cannot do.
-- `TelemetrySnapshot` gaining a `pending`/lag field with real values once the worker-count/batch-size
-  slice makes processing concurrent — at that point a *global* lag gauge (still no `run_id`, same
-  argument as freshness) becomes worth adding here.
+- ~~`TelemetrySnapshot` gaining a `pending`/lag field with real values once the worker-count/batch-
+  size slice lands.~~ Done in [0017](0017-worker-count-and-batch-size-are-a-capacity-model-not-goroutines.md):
+  `signal_garden_pending_events` is global (no `run_id`), but not the plain last-writer-wins Gauge
+  this record originally imagined — with multiple runs ticking concurrently, whichever run ticked
+  most recently would silently overwrite another run's real backlog with its own zero. It sums a
+  private per-run map instead (a `GaugeFunc` over `map[string]float64`, cleared per run on finish),
+  which keeps the no-`run_id`-on-the-wire property this record argues for while still being correct
+  when more than one run is active.
