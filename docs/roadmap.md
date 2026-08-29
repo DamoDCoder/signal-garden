@@ -4,9 +4,9 @@ Each milestone must end with something runnable, measurable, or reviewable. The 
 
 ## Status
 
-`main` at `v0.12.0`. M0–M2 done. M3 in progress, four slices landed as separate commits, not yet
+`main` at `v0.13.0`. M0–M2 done. M3 in progress, five slices landed as separate commits, not yet
 tagged — the convention on this branch is one tag per completed milestone, not one per slice, so
-the next tag is `v0.13.0`+ once M3's exit criteria are met, not before.
+the next tag is `v0.14.0`+ once M3's exit criteria are met, not before.
 
 | Milestone | State |
 | --- | --- |
@@ -32,8 +32,12 @@ the next tag is `v0.13.0`+ once M3's exit criteria are met, not before.
       transient, failable operation in the live path, and the snapshot is the lower-stakes of the
       two writes (the other being the durability-critical log append M2 depends on).
       [0018](decisions/0018-failure-injection-targets-the-snapshot-save-not-event-processing.md)
-- [ ] **OpenTelemetry traces** — run/event correlation, explicitly deferred out of the metrics
-      slice (0016). Not started.
+- [x] **OpenTelemetry traces** — run/event correlation, deferred out of the metrics slice (0016).
+      Two granularities: every gRPC call is a span (`otelgrpc`, covering REST too), and every tick
+      is a span (`run.id`/`tick`), with an event when that tick's snapshot save retried or failed —
+      deliberately not per-event, which would need a `context.Context` threaded into `Sim.Step`.
+      Exported OTLP/gRPC to an optional local endpoint (`SIGNAL_GARDEN_OTEL_ENDPOINT`); unset by
+      default, tracing costs nothing. [0019](decisions/0019-traces-are-tick-and-rpc-grained-not-per-event.md)
 - [ ] **Compact in-app performance view** — client-repo, not started.
 - [ ] **Client sliders for `worker_count`/`batch_size`** — daemon and contract shipped this; the
       client's `CONTRACT` pin and UI are a separate follow-up slice, scoped out on purpose when the

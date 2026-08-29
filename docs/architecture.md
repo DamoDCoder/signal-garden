@@ -19,7 +19,7 @@ flowchart LR
     end
 
     Replay[Replay and load tools] --> Log
-    Control --> Telemetry[Prometheus]
+    Control --> Telemetry[Prometheus + traces]
     Processor --> Telemetry
     Projection --> Telemetry
 ```
@@ -56,8 +56,14 @@ The event path is in-process by [0004](decisions/0004-event-spine-replaces-kafka
   events processed, snapshots dropped, and projection freshness. Deliberately no `run_id` label —
   Prometheus label values must stay bounded, and a run ID is not — so metrics are global or labeled
   only by closed sets (event outcome, gRPC method and code). Per-run drill-down stays on the
-  existing `GetTelemetry` poll. Run/event correlation is OpenTelemetry traces' job, not built yet.
-  See [0016](decisions/0016-prometheus-metrics-carry-no-run-id-label.md).
+  existing `GetTelemetry` poll. See [0016](decisions/0016-prometheus-metrics-carry-no-run-id-label.md).
+- Run/event correlation is OpenTelemetry traces' job, per 0016 — and it is built, at two
+  granularities: every gRPC call is a span (`otelgrpc`, covering REST too since the gateway dials
+  this same server), and every tick is a span carrying `run.id`/`tick`, with a span event when that
+  tick's periodic snapshot save retried or failed. Not per-event — see
+  [0019](decisions/0019-traces-are-tick-and-rpc-grained-not-per-event.md) for why. Exported OTLP/gRPC
+  to an optional local endpoint (`SIGNAL_GARDEN_OTEL_ENDPOINT`); unset, tracing is a noop and costs
+  nothing.
 
 ## Initial Deployment Shape
 

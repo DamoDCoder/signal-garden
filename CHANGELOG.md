@@ -8,6 +8,28 @@ Versions track the roadmap in [docs/roadmap.md](docs/roadmap.md): a minor versio
 
 Nothing yet.
 
+## [0.13.0] — 2026-08-29
+
+OpenTelemetry traces: run/event correlation, deferred out of the metrics slice.
+
+### Added
+
+- **`SIGNAL_GARDEN_OTEL_ENDPOINT`** — an optional OTLP/gRPC trace export target (e.g. a local Jaeger
+  container). Unset by default: tracing is a noop provider, every span call is inert, and `task
+  serve` behaves exactly as before this slice. See [0019](docs/decisions/0019-traces-are-tick-and-rpc-grained-not-per-event.md).
+- **RPC spans** — every gRPC call gets a span via the standard `otelgrpc` contrib instrumentation,
+  no custom code, covering REST traffic too since the gateway dials this same server.
+- **Tick spans** — every tick is a span carrying `run.id`/`tick`, added at the same call site that
+  already wraps `Step()` for the tick-duration metric. A span event (`snapshot_save_retried` /
+  `snapshot_save_failed`) is added when that tick's periodic snapshot save (see 0018) retried or
+  failed — entirely from outside `internal/sim`, which stays unaware tracing exists.
+- New `internal/tracing` package (the `TracerProvider` constructor) and `engine.WithTracer`, same
+  threading pattern `metrics.Recorder` established.
+
+Deliberately not per-event: hundreds of events a tick as individual spans would be noise, and would
+require threading a `context.Context` into `Sim.Step`/`fold` — a real signature change across the
+batch runner and its tests, left for a later slice if it turns out to matter.
+
 ## [0.12.0] — 2026-08-29
 
 Failure injection: a transient snapshot-save failure that retries and recovers.

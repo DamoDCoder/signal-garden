@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
@@ -36,6 +37,7 @@ import (
 	"github.com/damodbear/signal-garden/internal/metrics"
 	"github.com/damodbear/signal-garden/internal/projection"
 	"github.com/damodbear/signal-garden/internal/service"
+	"github.com/damodbear/signal-garden/internal/tracing"
 )
 
 // shutdownGrace bounds how long in-flight requests have to finish once a
@@ -56,6 +58,7 @@ func realMain() error {
 		dataDir      = flagString("SIGNAL_GARDEN_DATA_DIR", "data")
 		corsOrigin   = flagString("SIGNAL_GARDEN_CORS_ORIGIN", "*")
 		tickInterval = flagDuration("SIGNAL_GARDEN_TICK_INTERVAL", engine.DefaultTickInterval)
+		otelEndpoint = flagString("SIGNAL_GARDEN_OTEL_ENDPOINT", "")
 	)
 	corrupt, err := corruptPolicy(flagString("SIGNAL_GARDEN_ON_CORRUPT", "refuse"))
 	if err != nil {
@@ -67,11 +70,22 @@ func realMain() error {
 
 	rec := metrics.New()
 
+	tp, shutdownTracing, err := tracing.New(ctx, otelEndpoint)
+	if err != nil {
+		return fmt.Errorf("tracing: %w", err)
+	}
+	if otelEndpoint == "" {
+		fmt.Fprintln(os.Stderr, "tracing disabled (set SIGNAL_GARDEN_OTEL_ENDPOINT to enable)")
+	} else {
+		fmt.Fprintf(os.Stderr, "tracing to %s\n", otelEndpoint)
+	}
+
 	runs := engine.NewRegistry(
 		engine.WithTickInterval(tickInterval),
 		engine.WithLogs(engine.DirectoryLogs(dataDir)),
 		engine.WithCorruptPolicy(corrupt),
 		engine.WithMetrics(rec),
+		engine.WithTracer(tp),
 	)
 	defer runs.Close()
 	fmt.Fprintf(os.Stderr, "run history under %s, on corrupt: %s\n", dataDir, corrupt)
@@ -91,7 +105,10 @@ func realMain() error {
 		fmt.Fprintf(os.Stderr, "cross-origin requests allowed from %s\n", corsOrigin)
 	}
 
-	grpcServer := grpc.NewServer(grpc.ChainUnaryInterceptor(rec.UnaryServerInterceptor()))
+	grpcServer := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(rec.UnaryServerInterceptor()),
+		grpc.StatsHandler(otelgrpc.NewServerHandler(otelgrpc.WithTracerProvider(tp))),
+	)
 	gardenv1.RegisterGardenServiceServer(grpcServer, service.New(runs))
 
 	// Reflection makes the service explorable with grpcurl during local
@@ -155,6 +172,12 @@ func realMain() error {
 		return fmt.Errorf("http shutdown: %w", err)
 	}
 	grpcServer.GracefulStop()
+
+	// Flushes pending spans. A noop provider's shutdown is a no-op; a real
+	// one has a batch waiting that would otherwise never leave the process.
+	if err := shutdownTracing(shutdownCtx); err != nil {
+		fmt.Fprintf(os.Stderr, "tracing shutdown: %v\n", err)
+	}
 	return nil
 }
 

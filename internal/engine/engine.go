@@ -14,12 +14,17 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	spinesim "github.com/DamoDCoder/event-spine/sim"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/damodbear/signal-garden/internal/domain"
 	"github.com/damodbear/signal-garden/internal/event"
@@ -337,6 +342,7 @@ type Registry struct {
 	openLog  LogOpener
 	corrupt  CorruptPolicy
 	metrics  *metrics.Recorder
+	tracer   trace.Tracer
 	runs     map[string]*liveRun
 	order    []string
 	nextID   int
@@ -380,6 +386,13 @@ func WithMetrics(m *metrics.Recorder) Option {
 	return func(r *Registry) { r.metrics = m }
 }
 
+// WithTracer gives every run in this registry a tracer drawn from tp. The
+// default is a noop provider, so a registry built without this option costs
+// nothing extra — every span call is inert.
+func WithTracer(tp trace.TracerProvider) Option {
+	return func(r *Registry) { r.tracer = tp.Tracer("signalgardend/engine") }
+}
+
 // NewRegistry returns an empty registry driven by the system clock.
 func NewRegistry(opts ...Option) *Registry {
 	reg := &Registry{
@@ -387,6 +400,7 @@ func NewRegistry(opts ...Option) *Registry {
 		interval: DefaultTickInterval,
 		snapshot: DefaultSnapshotEvery,
 		openLog:  EphemeralLogs(),
+		tracer:   noop.NewTracerProvider().Tracer(""),
 		runs:     make(map[string]*liveRun),
 	}
 	for _, opt := range opts {
@@ -470,6 +484,7 @@ func (g *Registry) StartRun(req StartRunRequest) (Run, error) {
 		sim:       s,
 		clock:     g.clock,
 		metrics:   g.metrics,
+		tracer:    g.tracer,
 		recovered: recovered,
 		state:     StateRunning,
 		startedAt: now,
@@ -584,6 +599,7 @@ func (g *Registry) recoverOne(runID string) (Run, bool, error) {
 		sim:       s,
 		clock:     g.clock,
 		metrics:   g.metrics,
+		tracer:    g.tracer,
 		recovered: recovered,
 		resumed:   true,
 		state:     state,
@@ -964,6 +980,7 @@ type liveRun struct {
 	sim     *sim.Sim
 	clock   Clock
 	metrics *metrics.Recorder
+	tracer  trace.Tracer
 
 	state      State
 	startedAt  time.Time
@@ -1032,10 +1049,31 @@ func (r *liveRun) advance() {
 	if r.state != StateRunning {
 		return
 	}
+
+	// Snapshotted before Step so the span can report only what this tick's
+	// cadence-triggered save (if any) did, not the run's running total.
+	retriesBefore := r.sim.SnapshotSaveRetries()
+	failuresBefore := r.sim.SnapshotSaveFailures()
+
+	_, span := r.tracer.Start(context.Background(), "tick",
+		trace.WithAttributes(attribute.String("run.id", r.req.RunID)))
+	defer span.End()
+
 	stepStart := time.Now()
 	err := r.sim.Step()
 	r.metrics.ObserveTick(time.Since(stepStart))
+
+	span.SetAttributes(attribute.Int64("tick", r.sim.Tick()))
+	if retries := r.sim.SnapshotSaveRetries() - retriesBefore; retries > 0 {
+		span.AddEvent("snapshot_save_retried", trace.WithAttributes(attribute.Int64("attempts", retries)))
+	}
+	if r.sim.SnapshotSaveFailures() > failuresBefore {
+		span.AddEvent("snapshot_save_failed")
+	}
+
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		r.failure = err
 		r.finish()
 		return
